@@ -32,7 +32,7 @@ const oneLine = (text: string) => text.replace(/\r\n|\n|\r/g, " ");
 const shown = (item: Named) => (item.name === "" ? item.id : item.name);
 
 // Text that Markdown must show as written.
-const plain = (text: string) => oneLine(text).replace(/[\\`*_[\]<>|~&#]/g, "\\$&");
+export const plain = (text: string) => oneLine(text).replace(/[\\`*_[\]<>|~&#]/g, "\\$&");
 
 // A paragraph's first characters must not start a list or a heading line.
 function lineStart(text: string): string {

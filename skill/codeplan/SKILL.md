@@ -27,6 +27,7 @@ to this file:
 - [page](docs/page.md): what the page draws, the walk-through and themes
 - [draft](docs/draft.md): how `draft` proposes parts
 - [summary](docs/summary.md): the plan as Markdown and mermaid
+- [CI](docs/ci.md): a pull request workflow with `snapshot` and `report`
 
 ## When codeplan fits
 
@@ -241,6 +242,11 @@ Run `check` in CI after installing Node 22:
 Exit code 1 means the plan file or page is out of date with the code: run
 `update`, fix the lists, and commit. Exit code 2 means the config or plan
 file cannot be used, or the plan file has an error; read the error lines.
+
+To show on a pull request what it changed (which parts grew, new
+directories that a wide pattern took in), add `snapshot` of the base and
+`report` to the workflow; `report` never fails the job. The whole workflow
+is in [CI](docs/ci.md).
 
 ## Moving to a new version of codeplan.mjs
 

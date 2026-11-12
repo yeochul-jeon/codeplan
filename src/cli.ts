@@ -4,7 +4,8 @@ import { basename, dirname, join, resolve } from "node:path";
 import { SettingsError, readConfig, type Config } from "./config.js";
 import { DraftError, draft } from "./draft.js";
 import { measure, type Measurement } from "./measure.js";
-import { planPath, readPlanFile } from "./plan.js";
+import { planPath, readPlanFile, type PlanPart } from "./plan.js";
+import { readSnapshot, reportText, snapshotText, takeSnapshot, type PageState, type Snapshot } from "./report.js";
 import { layOut } from "./layout.js";
 import { PAGE_MARK, pageHtml } from "./page.js";
 import { mermaidText, summaryText } from "./summary.js";
@@ -23,13 +24,15 @@ export type CheckResult =
       config: Config;
       // The plan file's JSON value, or null when there is no plan file.
       plan: unknown;
+      // The parts that were measured, in plan order.
+      measured: PlanPart[];
       measurement: Measurement;
       diagnostics: Diagnostic[];
       // Parts left out of measurement; when any, orphans are not listed.
       excluded: number;
       // The page as update would write it now, or null when update would
       // not write (no plan, an error diagnostic, a contested file).
-      page: { path: string; bytes: Buffer | null; current: boolean };
+      page: { path: string; bytes: Buffer | null; current: boolean; state: PageState };
     };
 
 const USAGE = `Usage: node codeplan.mjs <command> [--repo <dir>] [options]
@@ -46,6 +49,12 @@ Commands:
   summary Print the plan as Markdown on standard output: the parts with
           their counts, uses, externals, scenarios and a mermaid diagram.
           Writes nothing and does not read the viewer page.
+  snapshot Print what check finds as JSON on standard output: the config
+          used, each part's counts, which pattern owns each file, the
+          problem lists and the findings. Writes nothing.
+  report  Print the state of the plan as Markdown for a pull request. With
+          --base, also what changed since that snapshot. Writes nothing and
+          always exits with 0 when it printed; check is what fails CI.
   help    Show this text.
 
 Options:
@@ -53,6 +62,10 @@ Options:
 
 Summary options:
   --mermaid           Print only the mermaid diagram.
+
+Report options:
+  --base <file>       A snapshot of the tree to compare with, made by the
+                      snapshot command.
 
 Draft options:
   --max-parts <n>     Most parts to propose (default 16).
@@ -70,13 +83,15 @@ cannot be used.
 Exit codes for summary: 0 printed (warnings, orphans, contested and
 unwatched files do not change it); 2 an error in the plan, no plan file, or
 the config or plan file cannot be read.
+Exit codes for snapshot and report: 0 printed; 2 the config cannot be used,
+the plan file is not JSON, or the --base file cannot be used.
 `;
 
 const LIST_LIMIT = 30;
 
 // The commands and options the command line takes.
-export const COMMANDS = ["check", "update", "draft", "summary", "help"];
-export const OPTIONS = ["--repo", "--max-parts", "--language", "--root", "--mermaid"];
+export const COMMANDS = ["check", "update", "draft", "summary", "snapshot", "report", "help"];
+export const OPTIONS = ["--repo", "--max-parts", "--language", "--root", "--mermaid", "--base"];
 
 // What is at the page place: nothing, a codeplan page, or something else.
 function pagePlace(repo: string, page: string): { kind: "absent" } | { kind: "page"; bytes: Buffer } | { kind: "other"; what: string } {
@@ -100,8 +115,11 @@ function pagePlace(repo: string, page: string): { kind: "absent" } | { kind: "pa
   return { kind: "page", bytes };
 }
 
-// `withPage: false` leaves the page place unread (summary).
-export function check(repo: string, withPage = true): CheckResult {
+// `page` says what to do about the page place: "compare" (check and update;
+// something that is not a codeplan page there is an error), "skip" (summary:
+// the place is not read) or "note" (snapshot and report: something else
+// there is noted as a foreign page).
+export function check(repo: string, page: "compare" | "skip" | "note" = "compare"): CheckResult {
   let config: Config;
   try {
     config = readConfig(repo);
@@ -111,8 +129,8 @@ export function check(repo: string, withPage = true): CheckResult {
   }
   const file = readPlanFile(repo, config.home);
   if (file.kind === "not-json") return { kind: "error", message: file.message };
-  const place = withPage ? pagePlace(repo, config.page) : { kind: "absent" as const };
-  if (place.kind === "other") {
+  const place = page === "skip" ? { kind: "absent" as const } : pagePlace(repo, config.page);
+  if (place.kind === "other" && page === "compare") {
     return {
       kind: "error",
       message:
@@ -120,12 +138,17 @@ export function check(repo: string, withPage = true): CheckResult {
         "Move it away, or set page in codeplan.json to another file under home",
     };
   }
-  const notCompared = { path: config.page, bytes: null, current: false };
+  const notCompared = {
+    path: config.page,
+    bytes: null,
+    current: false,
+    state: place.kind === "other" ? ("foreign" as const) : ("not-checked" as const),
+  };
   if (file.kind === "missing") {
     const plan = planPath(config.home);
     const measurement = measure(repo, config, []);
     const diagnostics = [diagnostic("no-plan", "plan", `${plan} not found, so every watched file is an orphan`)];
-    return { kind: "measured", config, plan: null, measurement, diagnostics, excluded: 0, page: notCompared };
+    return { kind: "measured", config, plan: null, measured: [], measurement, diagnostics, excluded: 0, page: notCompared };
   }
   const prepared = preparePlan(file.value);
   const measurement = measure(repo, config, prepared.parts);
@@ -138,16 +161,23 @@ export function check(repo: string, withPage = true): CheckResult {
     kind: "measured" as const,
     config,
     plan: file.value,
+    measured: prepared.parts,
     measurement,
     diagnostics,
     excluded: prepared.excluded,
   };
-  if (!withPage || diagnostics.some((d) => d.severity === "error") || measurement.contested.length > 0) {
+  if (
+    page === "skip" ||
+    place.kind === "other" ||
+    diagnostics.some((d) => d.severity === "error") ||
+    measurement.contested.length > 0
+  ) {
     return { ...result, page: notCompared };
   }
   const bytes = Buffer.from(pageFor(file.value, measurement), "utf8");
   const current = place.kind === "page" && place.bytes.equals(bytes);
-  return { ...result, page: { path: config.page, bytes, current } };
+  const state = place.kind === "absent" ? "missing" : current ? "ok" : "outdated";
+  return { ...result, page: { path: config.page, bytes, current, state } };
 }
 
 // The page for a plan with no error diagnostic: every part is an object
@@ -283,19 +313,61 @@ const FIXES: Record<string, string> = {
   "unknown-reference": "write the id of an existing part or external in the braces",
 };
 
+const fixFor = (code: string, plan: string): string =>
+  code === "no-plan" ? `create ${plan} and give each part the paths it owns` : FIXES[code]!;
+
 // The findings in the plan file, then one fix line for each code.
 function findingLines(diagnostics: Diagnostic[], plan: string): string {
   let text = "";
   for (const d of diagnostics) text += `${d.at}: ${d.code} [${d.severity}] ${d.message}\n`;
-  for (const code of new Set(diagnostics.map((d) => d.code))) {
-    const fix = code === "no-plan" ? `create ${plan} and give each part the paths it owns` : FIXES[code];
-    text += `  fix: ${code}: ${fix}\n`;
-  }
+  for (const code of new Set(diagnostics.map((d) => d.code))) text += `  fix: ${code}: ${fixFor(code, plan)}\n`;
   return text;
 }
 
+// What check finds in `repo`, as a snapshot; a RunResult when the config or
+// the plan file cannot be read.
+function snapshotOf(repo: string): Snapshot | RunResult {
+  const result = check(repo, "note");
+  if (result.kind === "error") return { code: 2, stdout: "", stderr: `codeplan: ${result.message}\n` };
+  const plan = planPath(result.config.home);
+  return takeSnapshot({
+    config: result.config,
+    hasPlan: result.plan !== null,
+    measured: result.measured,
+    measurement: result.measurement,
+    diagnostics: result.diagnostics,
+    excluded: result.excluded,
+    pageState: result.page.state,
+    fix: (code) => fixFor(code, plan),
+  });
+}
+
+function snapshot(repo: string): RunResult {
+  const taken = snapshotOf(repo);
+  return "snapshot" in taken ? { code: 0, stdout: snapshotText(taken), stderr: "" } : taken;
+}
+
+function report(repo: string, baseFile: string | undefined): RunResult {
+  let base: Snapshot | null = null;
+  if (baseFile !== undefined) {
+    try {
+      let text: string;
+      try {
+        text = readFileSync(baseFile, "utf8");
+      } catch {
+        throw new Error("it cannot be read");
+      }
+      base = readSnapshot(text);
+    } catch (e) {
+      return { code: 2, stdout: "", stderr: `codeplan: the --base file ${baseFile} cannot be used: ${(e as Error).message}\n` };
+    }
+  }
+  const head = snapshotOf(repo);
+  return "snapshot" in head ? { code: 0, stdout: reportText(head, base), stderr: "" } : head;
+}
+
 function summary(repo: string, mermaid: boolean): RunResult {
-  const result = check(repo, false);
+  const result = check(repo, "skip");
   if (result.kind === "error") return { code: 2, stdout: "", stderr: `codeplan: ${result.message}\n` };
   const stderr = findingLines(result.diagnostics, planPath(result.config.home));
   if (result.plan === null || result.diagnostics.some((d) => d.severity === "error")) {
@@ -313,7 +385,7 @@ function listSection(title: string, fix: string, items: string[]): string {
   return `${title} (${items.length})\n  fix: ${fix}\n${shown.join("")}${more}`;
 }
 
-function report(result: CheckResult & { kind: "measured" }): RunResult {
+function checkReport(result: CheckResult & { kind: "measured" }): RunResult {
   const { config, measurement: m, diagnostics, excluded } = result;
   const plan = planPath(config.home);
   let stdout = `languages: ${config.languages.join(", ")}\n`;
@@ -377,6 +449,7 @@ export function run(argv: readonly string[], cwd: string): RunResult {
   const roots: string[] = [];
   const draftFlags: string[] = [];
   let mermaid = false;
+  let base: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === "--repo") {
@@ -385,6 +458,10 @@ export function run(argv: readonly string[], cwd: string): RunResult {
       repo = resolve(cwd, value);
     } else if (arg === "--mermaid") {
       mermaid = true;
+    } else if (arg === "--base") {
+      const value = argv[++i];
+      if (value === undefined) return usageError("--base needs a file");
+      base = resolve(cwd, value);
     } else if (OPTIONS.includes(arg)) {
       const value = argv[++i];
       if (value === undefined) return usageError(`${arg} needs a value`);
@@ -408,6 +485,7 @@ export function run(argv: readonly string[], cwd: string): RunResult {
     return usageError(`${draftFlags[0]} is an option of draft only`);
   }
   if (command !== "summary" && mermaid) return usageError("--mermaid is an option of summary only");
+  if (command !== "report" && base !== undefined) return usageError("--base is an option of report only");
   if (maxParts !== undefined && !/^[0-9]+$/.test(maxParts)) {
     return usageError(`--max-parts needs a whole number of 1 or more, not "${maxParts}"`);
   }
@@ -433,9 +511,11 @@ export function run(argv: readonly string[], cwd: string): RunResult {
   }
   if (command === "update") return update(repo);
   if (command === "summary") return summary(repo, mermaid);
+  if (command === "snapshot") return snapshot(repo);
+  if (command === "report") return report(repo, base);
   const result = check(repo);
   if (result.kind === "error") {
     return { code: 2, stdout: "", stderr: `codeplan: ${result.message}\n` };
   }
-  return report(result);
+  return checkReport(result);
 }

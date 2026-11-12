@@ -97,6 +97,10 @@ contested or unwatched files, a warning in the plan file, or a page that
 Exit code 2 means the config file or plan file cannot be used, or the plan
 file has an error.
 
+For pull requests, `report` writes what state the plan is in and which
+parts the pull request changed, as Markdown for the job summary. The
+workflow for it is in the [CI reference](skill/codeplan/docs/ci.md).
+
 ## As a Claude Code skill
 
 `skill/codeplan` is a skill folder: `SKILL.md` tells an agent how to make
@@ -118,6 +122,7 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
 - [Page](skill/codeplan/docs/page.md)
 - [draft](skill/codeplan/docs/draft.md)
 - [summary](skill/codeplan/docs/summary.md)
+- [CI](skill/codeplan/docs/ci.md)
 
 ## Known limits
 

@@ -107,7 +107,7 @@ export function preparePlan(raw: unknown): PreparedPlan {
   for (const item of [...parts, ...externals]) if (kept(item)) prepared.targets.add(item.id);
 
   for (const part of parts) {
-    if (kept(part) && goodPaths(part.paths)) prepared.parts.push({ id: part.id, paths: part.paths });
+    if (kept(part) && goodPaths(part.paths)) prepared.parts.push({ id: part.id, paths: part.paths, planned: part.planned === true });
     else prepared.excluded++;
     if (!isObj(part)) continue;
     if (prepared.repeatedItems.has(part)) prepared.skipInGaps.add(part.id as string);

@@ -20,6 +20,8 @@ standard error.
 | `update` | Writes the page. |
 | `draft` | Prints a first plan file and config file for the repository, as one JSON document. Writes nothing. |
 | `summary` | Prints the plan as Markdown with a mermaid diagram; see [summary](summary.md). Writes nothing. |
+| `snapshot` | Prints what `check` finds as one JSON document; see [CI](ci.md). Writes nothing. |
+| `report` | Prints the state of the plan, and with `--base` the changes since a snapshot, as Markdown for a pull request; see [CI](ci.md). Writes nothing. |
 | `help` | Prints the usage. |
 
 | Option | Command | What it does |
@@ -29,6 +31,7 @@ standard error.
 | `--language <name>` | `draft` | `js` or `java`. Repeat for both. |
 | `--root <dir>` | `draft` | A source root to use instead of the language rules. Repeat for more. |
 | `--mermaid` | `summary` | Print only the mermaid diagram. |
+| `--base <file>` | `report` | A snapshot of the tree to compare with. |
 
 An option on a command it does not belong to, an unknown command or an
 unknown option give exit code 2 and the usage.
@@ -41,6 +44,8 @@ unknown option give exit code 2 and the usage.
 | `update` | written, already up to date, or no plan file | contested files (nothing written) | as for `check` |
 | `draft` | printed | — | an option, the config file or the repository cannot be used |
 | `summary` | printed, with or without warnings, orphans, contested or unwatched files | — | an error in the plan file, no plan file, or the config or plan file cannot be read |
+| `snapshot` | printed, with or without findings and problems | — | the config cannot be used, or the plan file is not JSON |
+| `report` | printed, with or without findings and problems | — | as for `snapshot`, or the `--base` file cannot be used |
 | `help` | always | — | — |
 
 ## What stops `update` and `check`

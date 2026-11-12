@@ -5,6 +5,7 @@ import { join } from "node:path";
 export interface PlanPart {
   id: string;
   paths: string[];
+  planned?: boolean;
 }
 
 export type PlanFile =

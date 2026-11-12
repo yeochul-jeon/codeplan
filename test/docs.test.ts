@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
@@ -22,8 +22,13 @@ const DOCS = [
 const read = (path: string) => readFileSync(path, "utf8");
 const doc = (name: string) => read(join(docsDir, name));
 
-// Text outside code blocks and inline code.
-const prose = (text: string) => text.replace(/```[\s\S]*?```/g, "").replace(/`[^`]*`/g, "");
+// Text outside code blocks and inline code. Blocks with a fence of four
+// backticks (they hold a three-backtick block) go first.
+const prose = (text: string) =>
+  text
+    .replace(/````[\s\S]*?````/g, "")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/`[^`]*`/g, "");
 
 // The backticked names in the first column of the tables under a heading.
 function firstColumn(text: string, heading: string): string[] {
@@ -139,6 +144,76 @@ describe("examples in the docs", () => {
     const out = sh(/```sh\n([\s\S]*?)```/.exec(section)![1]!);
     expect(out.status, out.stderr).toBe(0);
     expect(out.stdout).toBe(shownOutput);
+  });
+
+  test("the CI doc's workflow steps run in a git repository and print the report the doc shows", () => {
+    const text = doc("ci.md");
+    const shownReport = /````markdown\n([\s\S]*?)````/.exec(text)![1]!;
+    const yaml = /```yaml\n([\s\S]*?)```/.exec(text)![1]!;
+    // The run steps: a block after `run: |`, or the rest of a `run:` line.
+    const steps = [...yaml.matchAll(/^( *)run: (?:\|\n((?:\1 {2,}.*\n)+)|(.*)\n)/gm)].map((m) => m[2] ?? m[3]!);
+    expect(steps).toHaveLength(3);
+
+    const repo = makeRepo({
+      "package.json": lines(1),
+      "src/cart/index.ts": lines(4),
+      "src/cart/checkout.ts": lines(14),
+      "src/pay/charge.ts": lines(9),
+      "docs/codeplan/plan.json": /```json\n([\s\S]*?)```/.exec(doc("plan-file.md"))![1]!,
+      "docs/codeplan/codeplan.mjs": read(join(skill, "codeplan.mjs")),
+    });
+    const git = (...args: string[]) => {
+      const out = spawnSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", ...args], {
+        cwd: repo,
+        encoding: "utf8",
+      });
+      expect(out.status, out.stderr).toBe(0);
+      return out.stdout.trim();
+    };
+    git("init", "-q");
+    expect(run(["update"], repo).code).toBe(0);
+    git("add", "-A");
+    git("commit", "-q", "-m", "base");
+    const base = git("rev-parse", "HEAD");
+    writeFileSync(join(repo, "src/pay/refund.ts"), lines(6));
+    expect(run(["update"], repo).code).toBe(0);
+    git("add", "-A");
+    git("commit", "-q", "-m", "head");
+
+    const temp = makeRepo({});
+    const summaryFile = join(temp, "summary.md");
+    for (const step of steps) {
+      const out = spawnSync("sh", ["-e", "-c", step.replace("${{ github.event.pull_request.base.sha }}", base)], {
+        cwd: repo,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`,
+          RUNNER_TEMP: temp,
+          GITHUB_STEP_SUMMARY: summaryFile,
+        },
+        timeout: 60_000,
+      });
+      expect(out.status, `${step}\n${out.stderr}`).toBe(0);
+    }
+    expect(read(summaryFile)).toBe(shownReport);
+    expect(JSON.parse(read(join(temp, "base.json"))).snapshot).toBe(1);
+
+    // The command shown without a base, as written.
+    const alone = [...text.matchAll(/```sh\n([\s\S]*?)```/g)].map((m) => m[1]!);
+    expect(alone).toHaveLength(1);
+    const out = spawnSync("sh", ["-e", "-c", alone[0]!], {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` },
+    });
+    expect(out.stdout).toBe("## codeplan\n\ncheck: ok\n");
+  });
+
+  test("the snapshot fields in the CI doc are the fields snapshot prints", () => {
+    const repo = makeRepo({ "package.json": lines(1), "src/a.ts": lines(1) });
+    const printed = JSON.parse(run(["snapshot"], repo).stdout) as Record<string, unknown>;
+    expect(firstColumn(doc("ci.md"), "## What snapshot prints")).toEqual(Object.keys(printed));
   });
 
   test("the SKILL.md first-plan commands keep the other keys of a codeplan.json that is already there", () => {

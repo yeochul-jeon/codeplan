@@ -25,6 +25,9 @@ export interface Measurement {
   watchedFiles: number;
   // Every watched file and the part it is measured in (null: an orphan).
   owners: Map<string, string | null>;
+  // For a file measured in a part: that part's pattern that won it (the
+  // first in its paths among equally strong ones).
+  wonBy: Map<string, string>;
 }
 
 export const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -163,13 +166,14 @@ export function measure(repo: string, config: Config, plan: PlanPart[]): Measure
   const rules = new Rules(config);
   const files = listFiles(repo, rules.prunedDirs);
   const patterns = plan.flatMap((part) =>
-    part.paths.map((p) => ({ id: part.id, regex: compileGlob(p), strength: strength(p) })),
+    part.paths.map((p) => ({ id: part.id, pattern: p, regex: compileGlob(p), strength: strength(p) })),
   );
   const totals = new Map(plan.map((p) => [p.id, { files: 0, lines: 0 }]));
   const orphans: string[] = [];
   const contested: ContestedFile[] = [];
   const unwatched: string[] = [];
   const owners = new Map<string, string | null>();
+  const wonBy = new Map<string, string>();
   let watchedFiles = 0;
 
   for (const path of files) {
@@ -179,14 +183,14 @@ export function measure(repo: string, config: Config, plan: PlanPart[]): Measure
     }
     watchedFiles++;
     let best = -1;
-    let matched = new Set<string>();
+    let matched = new Map<string, string>();
     for (const p of patterns) {
       if (!p.regex.test(path)) continue;
       if (p.strength > best) {
         best = p.strength;
-        matched = new Set([p.id]);
-      } else if (p.strength === best) {
-        matched.add(p.id);
+        matched = new Map([[p.id, p.pattern]]);
+      } else if (p.strength === best && !matched.has(p.id)) {
+        matched.set(p.id, p.pattern);
       }
     }
     if (matched.size === 0) {
@@ -194,9 +198,10 @@ export function measure(repo: string, config: Config, plan: PlanPart[]): Measure
       owners.set(path, null);
       continue;
     }
-    const ids = [...matched].sort(byCodeUnit);
+    const ids = [...matched.keys()].sort(byCodeUnit);
     if (ids.length > 1) contested.push({ path, parts: ids });
     owners.set(path, ids[0]!);
+    wonBy.set(path, matched.get(ids[0]!)!);
     const total = totals.get(ids[0]!)!;
     total.files++;
     total.lines += lineTotal(readFileSync(join(repo, path)));
@@ -209,5 +214,6 @@ export function measure(repo: string, config: Config, plan: PlanPart[]): Measure
     unwatched,
     watchedFiles,
     owners,
+    wonBy,
   };
 }
