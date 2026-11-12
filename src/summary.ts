@@ -35,13 +35,13 @@ const shown = (item: Named) => (item.name === "" ? item.id : item.name);
 const plain = (text: string) => oneLine(text).replace(/[\\`*_[\]<>|~&#]/g, "\\$&");
 
 // A paragraph's first characters must not start a list or a heading line.
-function paragraph(text: string): string {
+function lineStart(text: string): string {
   if (/^[-+=]/.test(text)) return `\\${text}`;
   return text.replace(/^([0-9]+)([.)])/, "$1\\$2");
 }
 
 function nodeLabel(text: string): string {
-  return oneLine(text).replace(/["#&<>`|]/g, (c) => `#${c.charCodeAt(0)};`);
+  return oneLine(text).replace(/["#%&<>`|]/g, (c) => `#${c.charCodeAt(0)};`);
 }
 
 // The flowchart's lines, without a line end after the last.
@@ -100,10 +100,16 @@ export function summaryText(value: unknown, m: Measurement): string {
     }
     return out + plain(line.slice(from));
   };
+  // An about text as a paragraph block, without spaces and tabs at its
+  // ends; nothing when that leaves no text.
+  const paragraph = (text: string) => {
+    const trimmed = oneLine(text).replace(/^[ \t]+|[ \t]+$/g, "");
+    if (trimmed !== "") blocks.push(lineStart(prose(trimmed)));
+  };
   const row = (cells: (string | number)[]) => `| ${cells.join(" | ")} |`;
 
   const blocks: string[] = [`# ${plan.name === "" ? "codeplan" : plain(plan.name)}`];
-  if (plan.about !== "") blocks.push(paragraph(prose(plan.about)));
+  paragraph(plan.about);
 
   blocks.push("## Parts");
   const counts = new Map(m.parts.map((p) => [p.id, p]));
@@ -123,7 +129,7 @@ export function summaryText(value: unknown, m: Measurement): string {
 
   for (const p of plan.parts) {
     blocks.push(`### ${plain(shown(p))}`);
-    if (p.about !== "") blocks.push(paragraph(prose(p.about)));
+    paragraph(p.about);
     const uses = p.uses ?? [];
     if (uses.length > 0) {
       blocks.push("Uses:");

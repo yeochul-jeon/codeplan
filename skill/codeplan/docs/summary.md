@@ -77,11 +77,13 @@ flowchart LR
 - A planned part has `planned` in the Files and Lines columns.
 - When there are orphans or unwatched files, a line after the parts table
   gives the number of each.
-- A section with nothing in it is left out: no `about` paragraph, no
+- A section with nothing in it is left out: no `about` paragraph (an
+  `about` of only spaces, tabs or line breaks counts as nothing), no
   `Uses:` list, no Externals or Scenarios section.
 - Text from the plan file is written so that Markdown shows it as it is:
-  line breaks become spaces, and characters that Markdown reads as markup
-  get a backslash.
+  line breaks become spaces, characters that Markdown reads as markup get
+  a backslash, and an `about` paragraph loses the spaces and tabs at its
+  ends.
 
 The same plan file and the same code give the same bytes on every run.
 
@@ -99,6 +101,9 @@ node docs/codeplan/codeplan.mjs summary --mermaid > plan.mmd
 - Each use is one arrow, labelled with its `why` when there is one. Uses
   are drawn as written, a repeated use and a use of the part itself
   included.
+- In labels, the characters mermaid reads as syntax (`"`, `#`, `%`, `&`,
+  `<`, `>`, the backtick and `|`) are written as character codes such as
+  `#37;`, which mermaid shows as the character.
 - Scenarios are not in the diagram.
 - A planned part has a dashed border.
 

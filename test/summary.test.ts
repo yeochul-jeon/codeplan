@@ -172,6 +172,26 @@ describe("summary", () => {
     expect(r.out.stdout).toBe(BASE_TEXT.replace("The shop. **Shop** calls **auth**.", line));
   });
 
+  test.each([
+    ["  - x", "\\- x\n\n"],
+    ["    code", "code\n\n"],
+    ["   ", ""],
+    ["\t1. y  ", "1\\. y\n\n"],
+    [" \n ", ""],
+  ])("an about paragraph of %j loses the spaces and tabs at its ends", (about, block) => {
+    const r = summarised(planWith((p) => (p.about = about)));
+    expect(r.out.stdout).toBe(BASE_TEXT.replace("The shop. **Shop** calls **auth**.\n\n", block));
+    // A part's about follows the same rule.
+    const part = summarised(planWith((p) => (p.parts[0]!.about = about)));
+    expect(part.out.stdout).toBe(BASE_TEXT.replace("Cart and pay.\n\n", block));
+  });
+
+  test("a percent sign in a mermaid label is written as a character code", () => {
+    const r = summarised(planWith((p) => (p.parts[0]!.name = "50% %%{init}%%")));
+    expect(r.diagram).toContain('    p0["50#37; #37;#37;{init}#37;#37;"]');
+    expect(r.text).toContain("| 50% %%{init}%% | shop | store | 2 | 5 |");
+  });
+
   test("a planned part shows planned for its counts and a dashed class in the diagram", () => {
     const r = summarised(
       planWith((p) => p.parts.push({ id: "refund", name: "Refund", about: "", paths: ["src/refund/**"], planned: true })),

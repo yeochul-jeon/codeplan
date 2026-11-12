@@ -2217,12 +2217,12 @@ function diagnosePlan(prepared, facts) {
 var oneLine = (text) => text.replace(/\r\n|\n|\r/g, " ");
 var shown = (item) => item.name === "" ? item.id : item.name;
 var plain = (text) => oneLine(text).replace(/[\\`*_[\]<>|~&#]/g, "\\$&");
-function paragraph(text) {
+function lineStart(text) {
   if (/^[-+=]/.test(text)) return `\\${text}`;
   return text.replace(/^([0-9]+)([.)])/, "$1\\$2");
 }
 function nodeLabel(text) {
-  return oneLine(text).replace(/["#&<>`|]/g, (c) => `#${c.charCodeAt(0)};`);
+  return oneLine(text).replace(/["#%&<>`|]/g, (c) => `#${c.charCodeAt(0)};`);
 }
 function mermaidLines(value) {
   const plan = value;
@@ -2275,9 +2275,13 @@ function summaryText(value, m) {
     }
     return out + plain(line.slice(from));
   };
+  const paragraph = (text) => {
+    const trimmed = oneLine(text).replace(/^[ \t]+|[ \t]+$/g, "");
+    if (trimmed !== "") blocks.push(lineStart(prose(trimmed)));
+  };
   const row = (cells) => `| ${cells.join(" | ")} |`;
   const blocks = [`# ${plan.name === "" ? "codeplan" : plain(plan.name)}`];
-  if (plan.about !== "") blocks.push(paragraph(prose(plan.about)));
+  paragraph(plan.about);
   blocks.push("## Parts");
   const counts = new Map(m.parts.map((p) => [p.id, p]));
   blocks.push(
@@ -2295,7 +2299,7 @@ function summaryText(value, m) {
   if (m.unwatched.length > 0) blocks.push(`${m.unwatched.length} code files are outside the watch set.`);
   for (const p of plan.parts) {
     blocks.push(`### ${plain(shown(p))}`);
-    if (p.about !== "") blocks.push(paragraph(prose(p.about)));
+    paragraph(p.about);
     const uses = p.uses ?? [];
     if (uses.length > 0) {
       blocks.push("Uses:");
