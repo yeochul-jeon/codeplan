@@ -1,6 +1,6 @@
 // Tasks: the checks on them in the plan file, the info findings, the task
 // pane of the page, and the task tables of summary, snapshot and report.
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { check, run } from "../src/cli.js";
@@ -264,13 +264,21 @@ describe("tasks in the plan file", () => {
     );
   });
 
-  test("a file behind a symbolic link, and a directory, are not there", () => {
-    const { found } = checked(
-      changed((p) => {
-        p.tasks[1]!.makes = ["src/auth"];
-      }),
-    );
+  test("a directory, and a file behind a symbolic link, are not there", () => {
+    const { found } = checked(changed((p) => void (p.tasks[1]!.makes = ["src/auth"])));
     expect(found.map((m) => m[2])).toEqual(["task-done-missing"]);
+
+    // src/link is a link to src/auth, so src/link/login.ts can be read.
+    const repo = repoOf(changed((p) => void (p.tasks[1]!.makes = ["src/link/login.ts"])));
+    symlinkSync("auth", join(repo, "src/link"));
+    expect(readFileSync(join(repo, "src/link/login.ts"), "utf8")).toBe(lines(4));
+    run(["update"], repo);
+    const out = run(["check"], repo);
+    expect(out.stderr.split("\n").filter((l) => FINDING.test(l)).map((l) => FINDING.exec(l)!.slice(1, 3))).toEqual([
+      ["tasks[1].status", "task-done-missing"],
+      ["tasks[1].makes[0]", "task-path-unowned"],
+    ]);
+    expect(out.code).toBe(0);
   });
 });
 
