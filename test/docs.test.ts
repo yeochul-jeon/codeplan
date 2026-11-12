@@ -298,6 +298,11 @@ describe("the Korean README", () => {
   // Sorted, with every repeat kept.
   const bag = (items: Iterable<string>) => [...items].sort();
 
+  test("both files start with the title and the language line", () => {
+    expect(english.startsWith("# codeplan\n\nEnglish · [한국어](README.ko.md)\n")).toBe(true);
+    expect(korean.startsWith("# codeplan\n\n[English](README.md) · 한국어\n")).toBe(true);
+  });
+
   test("the code blocks are the same, in the same order", () => {
     // A four-backtick block first, as in outsideBlocks.
     const blocks = (text: string) => [...text.matchAll(/````[\s\S]*?````|```[\s\S]*?```/g)].map((m) => m[0]);
