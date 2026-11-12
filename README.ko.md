@@ -106,8 +106,8 @@ pull request에서는 `report`가 계획이 어떤 상태인지와 그 pull requ
 
 CI가 없거나 CI를 바꿀 수 없는 곳에서는 계획이 최신 상태가 아닌 pull
 request를 아무것도 막지 않습니다. 그래도 `check`는 자기 복제본의 pre-push
-훅에서나 정해진 주기로 돌릴 수 있고, `update`와 `summary`에는 둘 다
-필요하지 않습니다.
+훅에서나 정해진 주기로 돌릴 수 있습니다. `update`와 `summary`는 CI나 훅
+없이 언제든 돌릴 수 있습니다.
 [CI 없이 쓰기 참고 문서](skill/codeplan/docs/without-ci.md)를 보십시오.
 
 ## Claude Code 스킬로
