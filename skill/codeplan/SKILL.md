@@ -26,6 +26,7 @@ to this file:
 - [commands](docs/commands.md): commands, options and exit codes
 - [page](docs/page.md): what the page draws, the walk-through and themes
 - [draft](docs/draft.md): how `draft` proposes parts
+- [summary](docs/summary.md): the plan as Markdown and mermaid
 
 ## When codeplan fits
 
@@ -210,6 +211,19 @@ See [page](docs/page.md).
 
 The page is generated. Never edit it by hand; change the plan file and run
 `update`.
+
+## The plan as text
+
+When the plan has to go where the page cannot (a pull request description,
+a README, a chat answer), run `summary`: it prints the parts with their
+counts, uses, externals and scenarios as Markdown with a mermaid diagram;
+`--mermaid` prints the diagram alone. It writes nothing and exits with 0
+even when there are warnings, so it does not replace `check`. See
+[summary](docs/summary.md).
+
+```sh
+node docs/codeplan/codeplan.mjs summary
+```
 
 ## Checking in CI
 

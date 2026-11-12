@@ -53,6 +53,9 @@ and add `uses`, externals and scenarios; see the
 [plan file reference](skill/codeplan/docs/plan-file.md). Then open
 `docs/codeplan/codeplan.html` in a browser.
 
+`node docs/codeplan/codeplan.mjs summary` prints the same plan as Markdown
+with a mermaid diagram, for a pull request or a README.
+
 ## Files to commit in the planned repository
 
 | File | What it is |
@@ -114,6 +117,7 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
 - [Commands](skill/codeplan/docs/commands.md)
 - [Page](skill/codeplan/docs/page.md)
 - [draft](skill/codeplan/docs/draft.md)
+- [summary](skill/codeplan/docs/summary.md)
 
 ## Known limits
 

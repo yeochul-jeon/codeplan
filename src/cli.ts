@@ -7,6 +7,7 @@ import { measure, type Measurement } from "./measure.js";
 import { planPath, readPlanFile } from "./plan.js";
 import { layOut } from "./layout.js";
 import { PAGE_MARK, pageHtml } from "./page.js";
+import { mermaidText, summaryText } from "./summary.js";
 import { diagnosePlan, diagnostic, preparePlan, type Diagnostic } from "./validate.js";
 
 export interface RunResult {
@@ -20,6 +21,8 @@ export type CheckResult =
   | {
       kind: "measured";
       config: Config;
+      // The plan file's JSON value, or null when there is no plan file.
+      plan: unknown;
       measurement: Measurement;
       diagnostics: Diagnostic[];
       // Parts left out of measurement; when any, orphans are not listed.
@@ -29,7 +32,7 @@ export type CheckResult =
       page: { path: string; bytes: Buffer | null; current: boolean };
     };
 
-const USAGE = `Usage: node codeplan.mjs <command> [--repo <dir>] [draft options]
+const USAGE = `Usage: node codeplan.mjs <command> [--repo <dir>] [options]
 
 Commands:
   check   Measure the repository against its plan and report files no part
@@ -40,10 +43,16 @@ Commands:
           the plan and the code.
   draft   Read the repository and print a first plan.json and codeplan.json
           as one JSON document on standard output. Writes nothing.
+  summary Print the plan as Markdown on standard output: the parts with
+          their counts, uses, externals, scenarios and a mermaid diagram.
+          Writes nothing and does not read the viewer page.
   help    Show this text.
 
 Options:
   --repo <dir>        Repository to read (default: the current directory).
+
+Summary options:
+  --mermaid           Print only the mermaid diagram.
 
 Draft options:
   --max-parts <n>     Most parts to propose (default 16).
@@ -58,13 +67,16 @@ Exit codes for update: 0 written, already current, or no plan file;
 1 contested files (nothing written); 2 as for check.
 Exit codes for draft: 0 printed, 2 an option, the config or the repository
 cannot be used.
+Exit codes for summary: 0 printed (warnings, orphans, contested and
+unwatched files do not change it); 2 an error in the plan, no plan file, or
+the config or plan file cannot be read.
 `;
 
 const LIST_LIMIT = 30;
 
 // The commands and options the command line takes.
-export const COMMANDS = ["check", "update", "draft", "help"];
-export const OPTIONS = ["--repo", "--max-parts", "--language", "--root"];
+export const COMMANDS = ["check", "update", "draft", "summary", "help"];
+export const OPTIONS = ["--repo", "--max-parts", "--language", "--root", "--mermaid"];
 
 // What is at the page place: nothing, a codeplan page, or something else.
 function pagePlace(repo: string, page: string): { kind: "absent" } | { kind: "page"; bytes: Buffer } | { kind: "other"; what: string } {
@@ -88,7 +100,8 @@ function pagePlace(repo: string, page: string): { kind: "absent" } | { kind: "pa
   return { kind: "page", bytes };
 }
 
-export function check(repo: string): CheckResult {
+// `withPage: false` leaves the page place unread (summary).
+export function check(repo: string, withPage = true): CheckResult {
   let config: Config;
   try {
     config = readConfig(repo);
@@ -98,7 +111,7 @@ export function check(repo: string): CheckResult {
   }
   const file = readPlanFile(repo, config.home);
   if (file.kind === "not-json") return { kind: "error", message: file.message };
-  const place = pagePlace(repo, config.page);
+  const place = withPage ? pagePlace(repo, config.page) : { kind: "absent" as const };
   if (place.kind === "other") {
     return {
       kind: "error",
@@ -112,7 +125,7 @@ export function check(repo: string): CheckResult {
     const plan = planPath(config.home);
     const measurement = measure(repo, config, []);
     const diagnostics = [diagnostic("no-plan", "plan", `${plan} not found, so every watched file is an orphan`)];
-    return { kind: "measured", config, measurement, diagnostics, excluded: 0, page: notCompared };
+    return { kind: "measured", config, plan: null, measurement, diagnostics, excluded: 0, page: notCompared };
   }
   const prepared = preparePlan(file.value);
   const measurement = measure(repo, config, prepared.parts);
@@ -121,8 +134,15 @@ export function check(repo: string): CheckResult {
     files: new Map(measurement.parts.map((p) => [p.id, p.files])),
     owners: measurement.owners,
   });
-  const result = { kind: "measured" as const, config, measurement, diagnostics, excluded: prepared.excluded };
-  if (diagnostics.some((d) => d.severity === "error") || measurement.contested.length > 0) {
+  const result = {
+    kind: "measured" as const,
+    config,
+    plan: file.value,
+    measurement,
+    diagnostics,
+    excluded: prepared.excluded,
+  };
+  if (!withPage || diagnostics.some((d) => d.severity === "error") || measurement.contested.length > 0) {
     return { ...result, page: notCompared };
   }
   const bytes = Buffer.from(pageFor(file.value, measurement), "utf8");
@@ -263,6 +283,28 @@ const FIXES: Record<string, string> = {
   "unknown-reference": "write the id of an existing part or external in the braces",
 };
 
+// The findings in the plan file, then one fix line for each code.
+function findingLines(diagnostics: Diagnostic[], plan: string): string {
+  let text = "";
+  for (const d of diagnostics) text += `${d.at}: ${d.code} [${d.severity}] ${d.message}\n`;
+  for (const code of new Set(diagnostics.map((d) => d.code))) {
+    const fix = code === "no-plan" ? `create ${plan} and give each part the paths it owns` : FIXES[code];
+    text += `  fix: ${code}: ${fix}\n`;
+  }
+  return text;
+}
+
+function summary(repo: string, mermaid: boolean): RunResult {
+  const result = check(repo, false);
+  if (result.kind === "error") return { code: 2, stdout: "", stderr: `codeplan: ${result.message}\n` };
+  const stderr = findingLines(result.diagnostics, planPath(result.config.home));
+  if (result.plan === null || result.diagnostics.some((d) => d.severity === "error")) {
+    return { code: 2, stdout: "", stderr };
+  }
+  const stdout = mermaid ? mermaidText(result.plan) : summaryText(result.plan, result.measurement);
+  return { code: 0, stdout, stderr };
+}
+
 function listSection(title: string, fix: string, items: string[]): string {
   if (items.length === 0) return "";
   const shown = items.slice(0, LIST_LIMIT).map((i) => `  ${i}\n`);
@@ -306,11 +348,7 @@ function report(result: CheckResult & { kind: "measured" }): RunResult {
       `page outdated: ${result.page.path} differs from the page update would write now\n` +
       `  fix: run update\n`;
   }
-  for (const d of diagnostics) stderr += `${d.at}: ${d.code} [${d.severity}] ${d.message}\n`;
-  for (const code of new Set(diagnostics.map((d) => d.code))) {
-    const fix = code === "no-plan" ? `create ${plan} and give each part the paths it owns` : FIXES[code];
-    stderr += `  fix: ${code}: ${fix}\n`;
-  }
+  stderr += findingLines(diagnostics, plan);
 
   const errors = diagnostics.filter((d) => d.severity === "error").length;
   const warnings = diagnostics.length - errors;
@@ -338,12 +376,15 @@ export function run(argv: readonly string[], cwd: string): RunResult {
   const languages: string[] = [];
   const roots: string[] = [];
   const draftFlags: string[] = [];
+  let mermaid = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === "--repo") {
       const value = argv[++i];
       if (value === undefined) return usageError("--repo needs a directory");
       repo = resolve(cwd, value);
+    } else if (arg === "--mermaid") {
+      mermaid = true;
     } else if (OPTIONS.includes(arg)) {
       const value = argv[++i];
       if (value === undefined) return usageError(`${arg} needs a value`);
@@ -366,6 +407,7 @@ export function run(argv: readonly string[], cwd: string): RunResult {
   if (command !== "draft" && draftFlags.length > 0) {
     return usageError(`${draftFlags[0]} is an option of draft only`);
   }
+  if (command !== "summary" && mermaid) return usageError("--mermaid is an option of summary only");
   if (maxParts !== undefined && !/^[0-9]+$/.test(maxParts)) {
     return usageError(`--max-parts needs a whole number of 1 or more, not "${maxParts}"`);
   }
@@ -390,6 +432,7 @@ export function run(argv: readonly string[], cwd: string): RunResult {
     }
   }
   if (command === "update") return update(repo);
+  if (command === "summary") return summary(repo, mermaid);
   const result = check(repo);
   if (result.kind === "error") {
     return { code: 2, stdout: "", stderr: `codeplan: ${result.message}\n` };

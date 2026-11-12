@@ -4,7 +4,7 @@ codeplan is one file, `codeplan.mjs`. In a repository it lives at
 `<home>/codeplan.mjs` and runs with Node 22 or later:
 
 ```sh
-node docs/codeplan/codeplan.mjs <command> [--repo <dir>]
+node docs/codeplan/codeplan.mjs <command> [--repo <dir>] [options]
 ```
 
 The repository is the current directory. `--repo <dir>` names another one;
@@ -19,6 +19,7 @@ standard error.
 | `check` | Counts the files, checks the plan file and compares the page with what `update` would write. Writes nothing. |
 | `update` | Writes the page. |
 | `draft` | Prints a first plan file and config file for the repository, as one JSON document. Writes nothing. |
+| `summary` | Prints the plan as Markdown with a mermaid diagram; see [summary](summary.md). Writes nothing. |
 | `help` | Prints the usage. |
 
 | Option | Command | What it does |
@@ -27,9 +28,10 @@ standard error.
 | `--max-parts <n>` | `draft` | The most parts to propose (default 16). Decimal digits only, 1 or more. |
 | `--language <name>` | `draft` | `js` or `java`. Repeat for both. |
 | `--root <dir>` | `draft` | A source root to use instead of the language rules. Repeat for more. |
+| `--mermaid` | `summary` | Print only the mermaid diagram. |
 
-The `draft` options on another command, an unknown command or an unknown
-option give exit code 2 and the usage.
+An option on a command it does not belong to, an unknown command or an
+unknown option give exit code 2 and the usage.
 
 ## Exit codes
 
@@ -38,6 +40,7 @@ option give exit code 2 and the usage.
 | `check` | no problems | orphans, contested or unwatched files, an out of date page, or a warning | the config or plan file cannot be read, an error in the plan file, or something other than a codeplan page at the page place |
 | `update` | written, already up to date, or no plan file | contested files (nothing written) | as for `check` |
 | `draft` | printed | — | an option, the config file or the repository cannot be used |
+| `summary` | printed, with or without warnings, orphans, contested or unwatched files | — | an error in the plan file, no plan file, or the config or plan file cannot be read |
 | `help` | always | — | — |
 
 ## What stops `update` and `check`

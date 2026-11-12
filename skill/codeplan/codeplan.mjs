@@ -2213,8 +2213,126 @@ function diagnosePlan(prepared, facts) {
   return out.map((d, i) => ({ d, i })).sort((x, y) => first.get(x.d.at) - first.get(y.d.at) || byCodeUnit(x.d.code, y.d.code) || x.i - y.i).map((x) => x.d);
 }
 
+// src/summary.ts
+var oneLine = (text) => text.replace(/\r\n|\n|\r/g, " ");
+var shown = (item) => item.name === "" ? item.id : item.name;
+var plain = (text) => oneLine(text).replace(/[\\`*_[\]<>|~&#]/g, "\\$&");
+function paragraph(text) {
+  if (/^[-+=]/.test(text)) return `\\${text}`;
+  return text.replace(/^([0-9]+)([.)])/, "$1\\$2");
+}
+function nodeLabel(text) {
+  return oneLine(text).replace(/["#&<>`|]/g, (c) => `#${c.charCodeAt(0)};`);
+}
+function mermaidLines(value) {
+  const plan = value;
+  const node = /* @__PURE__ */ new Map();
+  plan.parts.forEach((p, i) => node.set(p.id, `p${i}`));
+  (plan.externals ?? []).forEach((e, i) => node.set(e.id, `x${i}`));
+  const partLine = (p, indent) => `${indent}${node.get(p.id)}["${nodeLabel(shown(p))}"]`;
+  const zoneOf = (p) => p.zone ?? "";
+  const lines = ["flowchart LR"];
+  const zones = [...new Set(plan.parts.map(zoneOf).filter((z) => z !== ""))].sort(byCodeUnit);
+  zones.forEach((zone, i) => {
+    lines.push(`  subgraph z${i}["${nodeLabel(zone)}"]`);
+    for (const p of plan.parts) if (zoneOf(p) === zone) lines.push(partLine(p, "    "));
+    lines.push("  end");
+  });
+  for (const p of plan.parts) if (zoneOf(p) === "") lines.push(partLine(p, "  "));
+  for (const e of plan.externals ?? []) lines.push(`  ${node.get(e.id)}[("${nodeLabel(shown(e))}")]`);
+  for (const p of plan.parts) {
+    for (const use of p.uses ?? []) {
+      const why = use.why ?? "";
+      const arrow = why === "" ? "-->" : `-->|"${nodeLabel(why)}"|`;
+      lines.push(`  ${node.get(p.id)} ${arrow} ${node.get(use.to)}`);
+    }
+  }
+  const planned = plan.parts.filter((p) => p.planned === true).map((p) => node.get(p.id));
+  if (planned.length > 0) {
+    lines.push("  classDef planned stroke-dasharray: 5 5", `  class ${planned.join(",")} planned`);
+  }
+  return lines;
+}
+function mermaidText(value) {
+  return `${mermaidLines(value).join("\n")}
+`;
+}
+function summaryText(value, m) {
+  const plan = value;
+  const externals = plan.externals ?? [];
+  const scenarios = plan.scenarios ?? [];
+  const names = /* @__PURE__ */ new Map();
+  for (const item of [...plan.parts, ...externals]) names.set(item.id, shown(item));
+  const strong = (id) => `**${plain(names.get(id))}**`;
+  const prose = (text) => {
+    const line = oneLine(text);
+    let out = "";
+    let from = 0;
+    for (const match of line.matchAll(REFERENCE)) {
+      if (!names.has(match[1])) continue;
+      out += plain(line.slice(from, match.index)) + strong(match[1]);
+      from = match.index + match[0].length;
+    }
+    return out + plain(line.slice(from));
+  };
+  const row = (cells) => `| ${cells.join(" | ")} |`;
+  const blocks = [`# ${plan.name === "" ? "codeplan" : plain(plan.name)}`];
+  if (plan.about !== "") blocks.push(paragraph(prose(plan.about)));
+  blocks.push("## Parts");
+  const counts = new Map(m.parts.map((p) => [p.id, p]));
+  blocks.push(
+    [
+      "| Part | Id | Zone | Files | Lines |",
+      "|---|---|---|---|---|",
+      ...plan.parts.map((p) => {
+        const count = counts.get(p.id);
+        const [files, lines] = p.planned === true ? ["planned", "planned"] : [count.files, count.lines];
+        return row([plain(shown(p)), p.id, plain(p.zone ?? ""), files, lines]);
+      })
+    ].join("\n")
+  );
+  if (m.orphans.length > 0) blocks.push(`${m.orphans.length} watched files belong to no part.`);
+  if (m.unwatched.length > 0) blocks.push(`${m.unwatched.length} code files are outside the watch set.`);
+  for (const p of plan.parts) {
+    blocks.push(`### ${plain(shown(p))}`);
+    if (p.about !== "") blocks.push(paragraph(prose(p.about)));
+    const uses = p.uses ?? [];
+    if (uses.length > 0) {
+      blocks.push("Uses:");
+      blocks.push(
+        uses.map((u) => `- ${strong(u.to)}${u.why === void 0 || u.why === "" ? "" : `: ${prose(u.why)}`}`).join("\n")
+      );
+    }
+  }
+  if (externals.length > 0) {
+    blocks.push("## Externals");
+    blocks.push(
+      [
+        "| External | Id | About |",
+        "|---|---|---|",
+        ...externals.map((e) => row([plain(shown(e)), e.id, prose(e.about)]))
+      ].join("\n")
+    );
+  }
+  if (scenarios.length > 0) {
+    blocks.push("## Scenarios");
+    for (const s of scenarios) {
+      blocks.push(`### ${plain(shown(s))}`);
+      if (s.steps.length > 0) {
+        blocks.push(
+          s.steps.map((step, k) => `${k + 1}. ${strong(step.at)}${step.does === "" ? "" : `: ${prose(step.does)}`}`).join("\n")
+        );
+      }
+    }
+  }
+  blocks.push("## Diagram");
+  blocks.push(["```mermaid", ...mermaidLines(plan), "```"].join("\n"));
+  return `${blocks.join("\n\n")}
+`;
+}
+
 // src/cli.ts
-var USAGE = `Usage: node codeplan.mjs <command> [--repo <dir>] [draft options]
+var USAGE = `Usage: node codeplan.mjs <command> [--repo <dir>] [options]
 
 Commands:
   check   Measure the repository against its plan and report files no part
@@ -2225,10 +2343,16 @@ Commands:
           the plan and the code.
   draft   Read the repository and print a first plan.json and codeplan.json
           as one JSON document on standard output. Writes nothing.
+  summary Print the plan as Markdown on standard output: the parts with
+          their counts, uses, externals, scenarios and a mermaid diagram.
+          Writes nothing and does not read the viewer page.
   help    Show this text.
 
 Options:
   --repo <dir>        Repository to read (default: the current directory).
+
+Summary options:
+  --mermaid           Print only the mermaid diagram.
 
 Draft options:
   --max-parts <n>     Most parts to propose (default 16).
@@ -2243,10 +2367,13 @@ Exit codes for update: 0 written, already current, or no plan file;
 1 contested files (nothing written); 2 as for check.
 Exit codes for draft: 0 printed, 2 an option, the config or the repository
 cannot be used.
+Exit codes for summary: 0 printed (warnings, orphans, contested and
+unwatched files do not change it); 2 an error in the plan, no plan file, or
+the config or plan file cannot be read.
 `;
 var LIST_LIMIT = 30;
-var COMMANDS = ["check", "update", "draft", "help"];
-var OPTIONS = ["--repo", "--max-parts", "--language", "--root"];
+var COMMANDS = ["check", "update", "draft", "summary", "help"];
+var OPTIONS = ["--repo", "--max-parts", "--language", "--root", "--mermaid"];
 function pagePlace(repo, page) {
   const segments = page.split("/");
   for (let i = 1; i < segments.length; i++) {
@@ -2265,7 +2392,7 @@ function pagePlace(repo, page) {
   }
   return { kind: "page", bytes };
 }
-function check(repo) {
+function check(repo, withPage = true) {
   let config;
   try {
     config = readConfig(repo);
@@ -2275,7 +2402,7 @@ function check(repo) {
   }
   const file = readPlanFile(repo, config.home);
   if (file.kind === "not-json") return { kind: "error", message: file.message };
-  const place = pagePlace(repo, config.page);
+  const place = withPage ? pagePlace(repo, config.page) : { kind: "absent" };
   if (place.kind === "other") {
     return {
       kind: "error",
@@ -2287,7 +2414,7 @@ function check(repo) {
     const plan = planPath(config.home);
     const measurement2 = measure(repo, config, []);
     const diagnostics2 = [diagnostic("no-plan", "plan", `${plan} not found, so every watched file is an orphan`)];
-    return { kind: "measured", config, measurement: measurement2, diagnostics: diagnostics2, excluded: 0, page: notCompared };
+    return { kind: "measured", config, plan: null, measurement: measurement2, diagnostics: diagnostics2, excluded: 0, page: notCompared };
   }
   const prepared = preparePlan(file.value);
   const measurement = measure(repo, config, prepared.parts);
@@ -2296,8 +2423,15 @@ function check(repo) {
     files: new Map(measurement.parts.map((p) => [p.id, p.files])),
     owners: measurement.owners
   });
-  const result2 = { kind: "measured", config, measurement, diagnostics, excluded: prepared.excluded };
-  if (diagnostics.some((d) => d.severity === "error") || measurement.contested.length > 0) {
+  const result2 = {
+    kind: "measured",
+    config,
+    plan: file.value,
+    measurement,
+    diagnostics,
+    excluded: prepared.excluded
+  };
+  if (!withPage || diagnostics.some((d) => d.severity === "error") || measurement.contested.length > 0) {
     return { ...result2, page: notCompared };
   }
   const bytes = Buffer.from(pageFor(file.value, measurement), "utf8");
@@ -2427,16 +2561,38 @@ var FIXES = {
   "gap-in-scenario": "add a use between the two steps' parts, or a step between them",
   "unknown-reference": "write the id of an existing part or external in the braces"
 };
+function findingLines(diagnostics, plan) {
+  let text = "";
+  for (const d of diagnostics) text += `${d.at}: ${d.code} [${d.severity}] ${d.message}
+`;
+  for (const code of new Set(diagnostics.map((d) => d.code))) {
+    const fix = code === "no-plan" ? `create ${plan} and give each part the paths it owns` : FIXES[code];
+    text += `  fix: ${code}: ${fix}
+`;
+  }
+  return text;
+}
+function summary(repo, mermaid) {
+  const result2 = check(repo, false);
+  if (result2.kind === "error") return { code: 2, stdout: "", stderr: `codeplan: ${result2.message}
+` };
+  const stderr = findingLines(result2.diagnostics, planPath(result2.config.home));
+  if (result2.plan === null || result2.diagnostics.some((d) => d.severity === "error")) {
+    return { code: 2, stdout: "", stderr };
+  }
+  const stdout = mermaid ? mermaidText(result2.plan) : summaryText(result2.plan, result2.measurement);
+  return { code: 0, stdout, stderr };
+}
 function listSection(title, fix, items) {
   if (items.length === 0) return "";
-  const shown = items.slice(0, LIST_LIMIT).map((i) => `  ${i}
+  const shown2 = items.slice(0, LIST_LIMIT).map((i) => `  ${i}
 `);
   const rest = items.length - LIST_LIMIT;
   const more = rest > 0 ? `  ... and ${rest} more
 ` : "";
   return `${title} (${items.length})
   fix: ${fix}
-${shown.join("")}${more}`;
+${shown2.join("")}${more}`;
 }
 function report(result2) {
   const { config, measurement: m, diagnostics, excluded } = result2;
@@ -2475,13 +2631,7 @@ function report(result2) {
   fix: run update
 `;
   }
-  for (const d of diagnostics) stderr += `${d.at}: ${d.code} [${d.severity}] ${d.message}
-`;
-  for (const code of new Set(diagnostics.map((d) => d.code))) {
-    const fix = code === "no-plan" ? `create ${plan} and give each part the paths it owns` : FIXES[code];
-    stderr += `  fix: ${code}: ${fix}
-`;
-  }
+  stderr += findingLines(diagnostics, plan);
   const errors = diagnostics.filter((d) => d.severity === "error").length;
   const warnings = diagnostics.length - errors;
   const problems = orphans.length + m.contested.length + m.unwatched.length;
@@ -2507,12 +2657,15 @@ ${USAGE}`
   const languages = [];
   const roots = [];
   const draftFlags = [];
+  let mermaid = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--repo") {
       const value = argv[++i];
       if (value === void 0) return usageError("--repo needs a directory");
       repo = resolve(cwd, value);
+    } else if (arg === "--mermaid") {
+      mermaid = true;
     } else if (OPTIONS.includes(arg)) {
       const value = argv[++i];
       if (value === void 0) return usageError(`${arg} needs a value`);
@@ -2535,6 +2688,7 @@ ${USAGE}`
   if (command !== "draft" && draftFlags.length > 0) {
     return usageError(`${draftFlags[0]} is an option of draft only`);
   }
+  if (command !== "summary" && mermaid) return usageError("--mermaid is an option of summary only");
   if (maxParts !== void 0 && !/^[0-9]+$/.test(maxParts)) {
     return usageError(`--max-parts needs a whole number of 1 or more, not "${maxParts}"`);
   }
@@ -2562,6 +2716,7 @@ ${USAGE}`
     }
   }
   if (command === "update") return update(repo);
+  if (command === "summary") return summary(repo, mermaid);
   const result2 = check(repo);
   if (result2.kind === "error") {
     return { code: 2, stdout: "", stderr: `codeplan: ${result2.message}

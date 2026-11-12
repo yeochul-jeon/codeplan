@@ -39,7 +39,7 @@ export function diagnostic(code: string, at: string, message: string): Diagnosti
 }
 
 const ID_FORM = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
-const REFERENCE = /\{([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\}/g;
+export const REFERENCE = /\{([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\}/g;
 
 export const KNOWN = {
   plan: ["format", "name", "about", "parts", "externals", "scenarios", "note"],

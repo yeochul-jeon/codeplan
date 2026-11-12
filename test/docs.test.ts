@@ -103,6 +103,42 @@ describe("examples in the docs", () => {
     expect(out.status, out.stderr + out.stdout).toBe(0);
     expect(out.stdout).toContain("check: ok");
     expect(run(["check"], repo).code).toBe(0);
+    expect(run(["summary"], repo).code).toBe(0);
+  });
+
+  test("the summary doc shows what summary prints for the plan file doc's example", () => {
+    const plan = /```json\n([\s\S]*?)```/.exec(doc("plan-file.md"))![1]!;
+    const shownOutput = /````markdown\n([\s\S]*?)````/.exec(doc("summary.md"))![1]!;
+    const repo = makeRepo({
+      "package.json": lines(1),
+      "src/cart/index.ts": lines(4),
+      "src/cart/checkout.ts": lines(14),
+      "src/pay/charge.ts": lines(9),
+      "docs/codeplan/plan.json": plan,
+      "docs/codeplan/codeplan.mjs": read(join(skill, "codeplan.mjs")),
+    });
+    expect(run(["summary"], repo)).toEqual({ code: 0, stdout: shownOutput, stderr: "" });
+    const diagram = /```mermaid\n([\s\S]*?)```/.exec(shownOutput)![1]!;
+    const sh = (script: string) =>
+      spawnSync("sh", ["-e", "-c", script], {
+        cwd: repo,
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` },
+        timeout: 60_000,
+      });
+
+    // The command lines the docs show, run as written.
+    const diagramCommand = [...doc("summary.md").matchAll(/```sh\n([\s\S]*?)```/g)]
+      .map((m) => m[1]!)
+      .find((script) => script.includes("> plan.mmd"))!;
+    expect(sh(diagramCommand).status).toBe(0);
+    expect(read(join(repo, "plan.mmd"))).toBe(diagram);
+
+    const skillText = read(join(skill, "SKILL.md"));
+    const section = skillText.slice(skillText.indexOf("## The plan as text"));
+    const out = sh(/```sh\n([\s\S]*?)```/.exec(section)![1]!);
+    expect(out.status, out.stderr).toBe(0);
+    expect(out.stdout).toBe(shownOutput);
   });
 
   test("the SKILL.md first-plan commands keep the other keys of a codeplan.json that is already there", () => {
