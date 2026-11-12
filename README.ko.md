@@ -2,8 +2,11 @@
 
 [English](README.md) · 한국어
 
-codeplan은 저장소의 계획을 코드 옆에 둡니다. 계획 파일이 최신 상태가
-아니면 `check` 명령이 0이 아닌 코드로 끝나고, CI 실행은 거기서 멈춥니다.
+codeplan은 저장소의 계획을 코드 옆에 두고, part와 어느 part가 어느 part를
+쓰는지, part를 거치는 scenario를 보여 주는 page를 씁니다. 계획 파일이 최신
+상태가 아니면 `check` 명령이 0이 아닌 코드로 끝납니다. `check`는 CI에서
+돌려 pull request를 막을 수도 있고, CI 없이 pre-push 훅에서나 정해진
+주기로 돌릴 수도 있습니다.
 
 계획에는 두 가지 내용이 있습니다. 사람이 쓰는 것: 저장소를 part로 나눈
 것과 각 part의 이름과 설명, 어느 part가 어느 part를 쓰는지, part가 쓰는
@@ -15,8 +18,8 @@ codeplan은 저장소의 계획을 코드 옆에 둡니다. 계획 파일이 최
 `check`는 감시하는 파일이 어느 part에도 속하지 않을 때, 두 part가 같은
 파일을 같은 강도로 가질 때, 코드가 감시 범위 밖에 있을 때, 계획 파일에
 오류가 있을 때, page가 계획 파일과 코드에 더 이상 맞지 않을 때
-실패합니다. 그래서 계획은 그것을 바꾸는 코드와 같은 pull request에서
-검토됩니다.
+실패합니다. `check`를 CI에서 돌리면 계획은 그것을 바꾸는 코드와 같은 pull
+request에서 검토됩니다.
 
 codeplan은 JavaScript와 TypeScript, 그리고 Java와 Kotlin(MyBatis mapper
 XML 포함)에서 동작합니다. `codeplan.mjs` 파일 하나이고 Node 22 이상만

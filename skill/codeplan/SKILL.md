@@ -1,6 +1,6 @@
 ---
 name: codeplan
-description: Use when a repository needs a plan of its code that stays true over time, or already has one under docs/codeplan. codeplan splits a JavaScript/TypeScript or Java/Kotlin repository into parts, counts the files and lines each part owns, draws a page with the parts, what uses what, and scenarios a reader can step through, and fails a CI check when the plan file is out of date with the code. Use it to make a first plan with draft, to refine part names, descriptions, uses and scenarios, to fix check failures, and to read or update the page. Not for repositories whose code is only in other languages.
+description: Use when a repository needs a plan of its code that stays true over time, or already has one under docs/codeplan. codeplan splits a JavaScript/TypeScript or Java/Kotlin repository into parts, counts the files and lines each part owns, draws a page with the parts, what uses what, and scenarios a reader can step through, and has a check command that exits non-zero when the plan file is out of date with the code, whether it runs in CI, from a pre-push hook or on a schedule. Use it to make a first plan with draft, to refine part names, descriptions, uses and scenarios, to fix check failures, and to read or update the page. Not for repositories whose code is only in other languages.
 license: MIT
 ---
 

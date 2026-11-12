@@ -2,8 +2,11 @@
 
 English · [한국어](README.ko.md)
 
-codeplan keeps a plan of a repository beside its code. Once the plan file is
-out of date, its `check` command exits non-zero, and the CI run stops there.
+codeplan keeps a plan of a repository beside its code and writes a page that
+shows the parts, which parts use which, and scenarios through them. Once the
+plan file is out of date, the `check` command exits non-zero. `check` can
+run in CI, where it stops a pull request, or without CI, from a pre-push
+hook or on a schedule.
 
 The plan has two kinds of content. Written by people: the repository split
 into parts, with a name and a description for each, which parts use which,
@@ -16,8 +19,8 @@ scenario.
 `check` fails when a watched file belongs to no part, when two parts own the
 same file equally, when code sits outside the watch set, when the plan file
 has an error, or when the page no longer matches the plan file and the code.
-So the plan is reviewed in the same pull request as the code that changes
-it.
+When `check` runs in CI, the plan is reviewed in the same pull request as
+the code that changes it.
 
 codeplan works with JavaScript and TypeScript, and with Java and Kotlin
 (including MyBatis mapper XML). It is one file, `codeplan.mjs`, that needs
