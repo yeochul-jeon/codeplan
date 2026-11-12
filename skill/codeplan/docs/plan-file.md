@@ -72,8 +72,17 @@ files and lines for each part from its `paths`.
 | `about` | yes | What this part is and why it is separate. May be empty. |
 | `start` | no | One file to start reading this part from, as a path from the repository root. It may be outside the watch set (a README, for instance). |
 | `paths` | yes | One or more globs: the files this part owns. |
+| `planned` | no | `true` for a part whose code is not written yet (see below). `false` is the same as leaving it out. |
 | `uses` | no | The parts and externals this part uses. Missing means `[]`. |
 | `note` | no | A note for people. |
+
+A planned part lets the plan come before the code. It needs `paths` like
+any part, other parts may use it, and scenario steps may be at it. While its
+`paths` match no file, `check` does not report `empty-part` for it, and its
+`start` may name a file that does not exist yet. As soon as a file matches,
+the file is counted in the part and `check` warns with `planned-has-files`:
+remove `planned` in the change that adds the code. The tool never changes
+`planned` itself, and `draft` does not write it.
 
 ### An element of `uses`
 

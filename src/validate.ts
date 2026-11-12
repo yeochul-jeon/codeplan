@@ -22,6 +22,7 @@ export const SEVERITY: Record<string, Severity> = {
   "no-paths": "error",
   "unknown-target": "error",
   "empty-part": "warning",
+  "planned-has-files": "warning",
   "start-missing": "warning",
   "start-elsewhere": "warning",
   "self-use": "warning",
@@ -42,7 +43,7 @@ const REFERENCE = /\{([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\}/g;
 
 export const KNOWN = {
   plan: ["format", "name", "about", "parts", "externals", "scenarios", "note"],
-  part: ["id", "name", "zone", "about", "start", "paths", "uses", "note"],
+  part: ["id", "name", "zone", "about", "start", "paths", "planned", "uses", "note"],
   use: ["to", "why", "evidence", "note"],
   external: ["id", "name", "about", "note"],
   scenario: ["id", "name", "steps", "note"],
@@ -235,6 +236,9 @@ export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diag
     const who = id(part, at, "part", repeated);
     const partId = validId(part.id) ? part.id : null;
     const isMeasured = partId !== null && !repeated && measured.has(partId);
+    // A planned part has no code yet. Any value but true leaves it a part
+    // like the others.
+    const planned = part.planned === true;
     string(part, "name", `${at}.name`, who, true);
     string(part, "zone", `${at}.zone`, who, false);
     text(part, "about", `${at}.about`, who, true, !repeated);
@@ -253,7 +257,7 @@ export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diag
           isFile = false;
         }
         if (!isFile) {
-          emit("start-missing", `${at}.start`, `${who}${start} is not a file in the repository`);
+          if (!planned) emit("start-missing", `${at}.start`, `${who}${start} is not a file in the repository`);
         } else if (isMeasured && facts.owners.has(start) && facts.owners.get(start) !== partId) {
           emit("start-elsewhere", `${at}.start`, `${who}${start} is not measured in this part`);
         }
@@ -267,13 +271,23 @@ export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diag
           emit("bad-shape", `${at}.paths[${j}]`, `${who}a pattern must be a non-empty string`);
         }
       });
-      if (isMeasured && facts.files.get(partId) === 0) {
+      if (isMeasured && !planned && facts.files.get(partId) === 0) {
         emit("empty-part", `${at}.paths`, `${who}its paths match no watched file`);
       }
     } else if (paths !== undefined && !Array.isArray(paths)) {
       emit("bad-shape", `${at}.paths`, `${who}\`paths\` must be an array of patterns`);
     } else if (!repeated) {
       emit("no-paths", `${at}.paths`, `${who}a part needs at least one pattern in \`paths\``);
+    }
+
+    if ("planned" in part && typeof part.planned !== "boolean") {
+      emit("bad-shape", `${at}.planned`, `${who}\`planned\` must be true or false`);
+    } else if (planned && isMeasured && facts.files.get(partId)! > 0) {
+      emit(
+        "planned-has-files",
+        `${at}.planned`,
+        `${who}the part is planned, but ${facts.files.get(partId)} watched files are measured in it`,
+      );
     }
 
     if ("uses" in part) {

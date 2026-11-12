@@ -114,6 +114,10 @@ each:
   `at` (a part or external id) and `does` (what happens there). Two steps in
   a row at different places should be joined by a use, or `check` warns
   with `gap-in-scenario`.
+- `planned`: `true` on a part whose code does not exist yet. Give it the
+  `paths` the code will have; `check` then does not report `empty-part`,
+  and the page draws it with a dashed border. When the first file arrives,
+  `check` warns with `planned-has-files`: remove `planned` then.
 - `note`: a note for people anywhere; the tool keeps it and does not read it.
 
 Write a use only when the code shows it: an import, a call, a client, a
@@ -182,7 +186,10 @@ Read the lists on standard error; each comes with a `fix:` line.
   is in [diagnostics](docs/diagnostics.md). Fix errors first: while a part's
   `paths` is broken, orphans are not listed and counting is incomplete.
 - `empty-part`: the part's `paths` match nothing. Correct the globs, or ask
-  whether the part should go.
+  whether the part should go. If the code is still to be written, ask
+  whether the part is planned, and set `planned` to `true` when it is.
+- `planned-has-files`: a planned part now has files. Remove `planned`; if
+  the files are not that part's code, correct its `paths`.
 
 A config error (unknown key, wrong type, a path with a backslash, `..`, `./`
 or a trailing `/`) stops every command with exit code 2 and one line naming

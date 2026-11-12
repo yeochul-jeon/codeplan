@@ -25,8 +25,9 @@ page. A `warning` makes `check` exit with 1 and does not stop `update`.
 | `repeated-id` | error | `id` of the second and later item with the same id | Two parts, externals or scenarios share an id. | Give each item its own id. |
 | `no-paths` | error | `parts[i].paths` | A part has no `paths` or an empty array. | Add at least one glob. |
 | `unknown-target` | error | `uses[i].to` or `steps[i].at` | The id names no part or external. | Name an existing part or external, or add it. |
-| `empty-part` | warning | `parts[i].paths` | The part owns no watched file. | Correct its `paths`, or remove the part. |
-| `start-missing` | warning | `parts[i].start` | The `start` file does not exist, or is not a file (a directory, a symbolic link). | Point `start` at a file. |
+| `empty-part` | warning | `parts[i].paths` | The part owns no watched file. Not reported for a planned part (`planned: true`). | Correct its `paths`, or remove the part. |
+| `planned-has-files` | warning | `parts[i].planned` | A planned part has one or more watched files counted in it, contested files counted there included. | Remove `planned` now that the part has code. If the files are not its code, correct its `paths`. |
+| `start-missing` | warning | `parts[i].start` | The `start` file does not exist, or is not a file (a directory, a symbolic link). Not reported for a planned part. | Point `start` at a file. |
 | `start-elsewhere` | warning | `parts[i].start` | The `start` file is in the watch set but another part owns it (or it is an orphan). Files outside the watch set are not checked. | Point `start` at a file this part owns. |
 | `self-use` | warning | `uses[i].to` | A part uses itself. | Remove that use. |
 | `repeated-use` | warning | `uses[i].to` of the second and later use | One part uses the same target twice. | Keep one. |
@@ -52,12 +53,14 @@ Only the checks that depend on a broken field are skipped:
 
 - An item with a well-formed `id` keeps that id even when other fields are
   broken, so references to it still resolve.
-- Inside an item with a `repeated-id`, only `bad-shape` is reported. That
+- Inside an item with a `repeated-id`, only `bad-shape` is reported (so no
+  `planned-has-files` either). That
   item is left out of counting. While any `repeated-id` exists,
   `unused-external` is not reported, and steps at a repeated part's id are
   not checked for gaps.
 - A part whose `paths` is missing or broken, or that has no well-formed id,
-  is left out of counting and gets no `empty-part` or `start-elsewhere`.
+  is left out of counting and gets no `empty-part`, `start-elsewhere` or
+  `planned-has-files`.
 - A part whose `uses` is not an array gets no use checks, and steps at that
   part are not checked for gaps. A use that is not an object, or has a
   missing or malformed `to`, gets no use checks. A `to` that is an

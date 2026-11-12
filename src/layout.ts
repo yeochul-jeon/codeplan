@@ -37,6 +37,8 @@ export interface PartInput {
   zone: string | undefined;
   lines: number;
   files: number;
+  // A planned part: the third label line reads "planned".
+  planned?: boolean;
 }
 
 export const GAP = 8;
@@ -53,7 +55,7 @@ export function textWidth(text: string): number {
 }
 
 export function labelLines(p: PartInput): string[] {
-  return [p.name === "" ? p.id : p.name, `${p.lines} lines`, `${p.files} files`];
+  return [p.name === "" ? p.id : p.name, `${p.lines} lines`, p.planned ? "planned" : `${p.files} files`];
 }
 
 export function labelWidth(p: PartInput): number {

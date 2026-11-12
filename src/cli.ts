@@ -134,7 +134,7 @@ export function check(repo: string): CheckResult {
 // with a proper id, name and paths, and was measured, in plan order.
 function pageFor(plan: unknown, m: Measurement): string {
   type Raw = {
-    parts: { id: string; name: string; zone?: string; uses?: { to: string }[] }[];
+    parts: { id: string; name: string; zone?: string; planned?: boolean; uses?: { to: string }[] }[];
     externals?: { id: string; name: string }[];
     scenarios?: { id: string; steps: { at: string }[] }[];
   };
@@ -170,6 +170,7 @@ function pageFor(plan: unknown, m: Measurement): string {
       zone: part.zone,
       lines: parts[i]!.lines,
       files: parts[i]!.files,
+      planned: part.planned === true,
     })),
     externals.map((e) => ({ id: e.id, name: e.name })),
     { edges, connectors },
@@ -250,6 +251,8 @@ const FIXES: Record<string, string> = {
   "no-paths": "give the part at least one pattern in paths",
   "unknown-target": "name an existing part or external, or add it",
   "empty-part": "correct the part's paths so they match files, or remove the part",
+  "planned-has-files":
+    "remove planned from the part now that it has code; if the files are not its code, correct the part's paths",
   "start-missing": "point start at a file in the repository",
   "start-elsewhere": "point start at a file this part measures",
   "self-use": "remove the use of the part itself",

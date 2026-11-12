@@ -13,7 +13,8 @@ and `check` refuse to touch it.
 
 - One rectangle for each part, sized by its line count, with a label of
   three lines: the name (or the id when the name is empty), the line count
-  and the file count.
+  and the file count. A planned part has a dashed border, and its third
+  line is the word `planned`.
 - A frame for each `zone`, with its name, around the zone's parts.
 - One rectangle for each external, below the parts, labelled with its name
   and the word `external`.

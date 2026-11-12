@@ -20,15 +20,18 @@ const OPEN = '<script type="application/json" id="codeplan-data">';
 
 // Widths counted again here, apart from the code under test.
 export const width = (text: string) => [...text].reduce((s, c) => s + (c.codePointAt(0)! < 0x1100 ? 7 : 13), 0);
-export const labelA = (name: string, id: string, lines: number, files: number) =>
-  Math.min(240, Math.max(width(name === "" ? id : name), width(`${lines} lines`), width(`${files} files`)) + 12);
+export const labelA = (name: string, id: string, lines: number, files: number, planned = false) =>
+  Math.min(
+    240,
+    Math.max(width(name === "" ? id : name), width(`${lines} lines`), width(planned ? "planned" : `${files} files`)) + 12,
+  );
 export const titleW = (zone: string) => Math.min(240, width(zone) + 12);
 
 export interface Block {
   format: number;
   plan: {
     name?: unknown;
-    parts: { id: string; name: string; zone?: string; uses?: { to: string }[] }[];
+    parts: { id: string; name: string; zone?: string; planned?: unknown; uses?: { to: string }[] }[];
     externals?: { id: string; name: string }[];
     scenarios?: { id: string; steps: { at: string }[] }[];
   } & Record<string, unknown>;
@@ -192,7 +195,7 @@ export function expectLayout(block: Block): void {
 
   layout.parts.forEach((p, i) => {
     const m = measure.parts[i]!;
-    const a = labelA(plan.parts[i]!.name, p.id, m.lines, m.files);
+    const a = labelA(plan.parts[i]!.name, p.id, m.lines, m.files, plan.parts[i]!.planned === true);
     expect(p.label, p.id).toEqual({ x: p.x, y: p.y, w: a, h: 56 });
     const area = p.w * p.h;
     expect(p.w >= a && p.h >= 56, p.id).toBe(true);

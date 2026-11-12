@@ -83,6 +83,7 @@ main { padding: 16px; }
 .zone { fill: var(--cp-zone-fill); stroke: var(--cp-zone-line); stroke-width: 1; }
 .zone-title { fill: var(--cp-zone-title); font-size: 12px; font-weight: 600; }
 .part { fill: var(--cp-part-fill); stroke: var(--cp-part-line); stroke-width: 1; }
+.part[data-planned] { stroke-dasharray: 6 3; }
 .external { fill: var(--cp-ext-fill); stroke: var(--cp-ext-line); stroke-width: 1; stroke-dasharray: 4 2; }
 .label { fill: var(--cp-text); font-size: 12px; }
 .label .name { font-weight: 600; }
@@ -142,7 +143,11 @@ const VIEWER = `
   var names = Object.create(null);
   var planParts = plan.parts || [];
   var planExternals = plan.externals || [];
-  for (var i = 0; i < planParts.length; i++) names[planParts[i].id] = str(planParts[i].name) || planParts[i].id;
+  var planned = Object.create(null);
+  for (var i = 0; i < planParts.length; i++) {
+    names[planParts[i].id] = str(planParts[i].name) || planParts[i].id;
+    if (planParts[i].planned === true) planned[planParts[i].id] = true;
+  }
   for (var e = 0; e < planExternals.length; e++) names[planExternals[e].id] = str(planExternals[e].name) || planExternals[e].id;
   var measured = Object.create(null);
   for (var j = 0; j < data.measure.parts.length; j++) measured[data.measure.parts[j].id] = data.measure.parts[j];
@@ -163,7 +168,8 @@ const VIEWER = `
     var part = layout.parts[p];
     var m = measured[part.id] || { lines: 0, files: 0 };
     rects[part.id] = make("rect", { x: part.x, y: part.y, width: part.w, height: part.h, "class": "part", "data-id": part.id }, plane);
-    textBox(part.label, [names[part.id] || part.id, m.lines + " lines", m.files + " files"], "label", plane);
+    if (planned[part.id]) rects[part.id].setAttribute("data-planned", "true");
+    textBox(part.label, [names[part.id] || part.id, m.lines + " lines", planned[part.id] ? "planned" : m.files + " files"], "label", plane);
   }
   for (var x = 0; x < layout.externals.length; x++) {
     var ext = layout.externals[x];

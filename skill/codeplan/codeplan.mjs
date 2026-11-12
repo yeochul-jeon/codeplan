@@ -1205,7 +1205,7 @@ function textWidth(text) {
   return width;
 }
 function labelLines(p) {
-  return [p.name === "" ? p.id : p.name, `${p.lines} lines`, `${p.files} files`];
+  return [p.name === "" ? p.id : p.name, `${p.lines} lines`, p.planned ? "planned" : `${p.files} files`];
 }
 function labelWidth(p) {
   return Math.min(LABEL_CAP, Math.max(...labelLines(p).map(textWidth)) + 12);
@@ -1588,6 +1588,7 @@ main { padding: 16px; }
 .zone { fill: var(--cp-zone-fill); stroke: var(--cp-zone-line); stroke-width: 1; }
 .zone-title { fill: var(--cp-zone-title); font-size: 12px; font-weight: 600; }
 .part { fill: var(--cp-part-fill); stroke: var(--cp-part-line); stroke-width: 1; }
+.part[data-planned] { stroke-dasharray: 6 3; }
 .external { fill: var(--cp-ext-fill); stroke: var(--cp-ext-line); stroke-width: 1; stroke-dasharray: 4 2; }
 .label { fill: var(--cp-text); font-size: 12px; }
 .label .name { font-weight: 600; }
@@ -1640,7 +1641,11 @@ var VIEWER = `
   var names = Object.create(null);
   var planParts = plan.parts || [];
   var planExternals = plan.externals || [];
-  for (var i = 0; i < planParts.length; i++) names[planParts[i].id] = str(planParts[i].name) || planParts[i].id;
+  var planned = Object.create(null);
+  for (var i = 0; i < planParts.length; i++) {
+    names[planParts[i].id] = str(planParts[i].name) || planParts[i].id;
+    if (planParts[i].planned === true) planned[planParts[i].id] = true;
+  }
   for (var e = 0; e < planExternals.length; e++) names[planExternals[e].id] = str(planExternals[e].name) || planExternals[e].id;
   var measured = Object.create(null);
   for (var j = 0; j < data.measure.parts.length; j++) measured[data.measure.parts[j].id] = data.measure.parts[j];
@@ -1661,7 +1666,8 @@ var VIEWER = `
     var part = layout.parts[p];
     var m = measured[part.id] || { lines: 0, files: 0 };
     rects[part.id] = make("rect", { x: part.x, y: part.y, width: part.w, height: part.h, "class": "part", "data-id": part.id }, plane);
-    textBox(part.label, [names[part.id] || part.id, m.lines + " lines", m.files + " files"], "label", plane);
+    if (planned[part.id]) rects[part.id].setAttribute("data-planned", "true");
+    textBox(part.label, [names[part.id] || part.id, m.lines + " lines", planned[part.id] ? "planned" : m.files + " files"], "label", plane);
   }
   for (var x = 0; x < layout.externals.length; x++) {
     var ext = layout.externals[x];
@@ -1886,6 +1892,7 @@ var SEVERITY = {
   "no-paths": "error",
   "unknown-target": "error",
   "empty-part": "warning",
+  "planned-has-files": "warning",
   "start-missing": "warning",
   "start-elsewhere": "warning",
   "self-use": "warning",
@@ -1903,7 +1910,7 @@ var ID_FORM = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 var REFERENCE = /\{([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\}/g;
 var KNOWN = {
   plan: ["format", "name", "about", "parts", "externals", "scenarios", "note"],
-  part: ["id", "name", "zone", "about", "start", "paths", "uses", "note"],
+  part: ["id", "name", "zone", "about", "start", "paths", "planned", "uses", "note"],
   use: ["to", "why", "evidence", "note"],
   external: ["id", "name", "about", "note"],
   scenario: ["id", "name", "steps", "note"],
@@ -2054,6 +2061,7 @@ function diagnosePlan(prepared, facts) {
     const who = id(part, at, "part", repeated);
     const partId = validId(part.id) ? part.id : null;
     const isMeasured = partId !== null && !repeated && measured.has(partId);
+    const planned = part.planned === true;
     string(part, "name", `${at}.name`, who, true);
     string(part, "zone", `${at}.zone`, who, false);
     text(part, "about", `${at}.about`, who, true, !repeated);
@@ -2069,7 +2077,7 @@ function diagnosePlan(prepared, facts) {
           isFile = false;
         }
         if (!isFile) {
-          emit("start-missing", `${at}.start`, `${who}${start} is not a file in the repository`);
+          if (!planned) emit("start-missing", `${at}.start`, `${who}${start} is not a file in the repository`);
         } else if (isMeasured && facts.owners.has(start) && facts.owners.get(start) !== partId) {
           emit("start-elsewhere", `${at}.start`, `${who}${start} is not measured in this part`);
         }
@@ -2082,13 +2090,22 @@ function diagnosePlan(prepared, facts) {
           emit("bad-shape", `${at}.paths[${j}]`, `${who}a pattern must be a non-empty string`);
         }
       });
-      if (isMeasured && facts.files.get(partId) === 0) {
+      if (isMeasured && !planned && facts.files.get(partId) === 0) {
         emit("empty-part", `${at}.paths`, `${who}its paths match no watched file`);
       }
     } else if (paths !== void 0 && !Array.isArray(paths)) {
       emit("bad-shape", `${at}.paths`, `${who}\`paths\` must be an array of patterns`);
     } else if (!repeated) {
       emit("no-paths", `${at}.paths`, `${who}a part needs at least one pattern in \`paths\``);
+    }
+    if ("planned" in part && typeof part.planned !== "boolean") {
+      emit("bad-shape", `${at}.planned`, `${who}\`planned\` must be true or false`);
+    } else if (planned && isMeasured && facts.files.get(partId) > 0) {
+      emit(
+        "planned-has-files",
+        `${at}.planned`,
+        `${who}the part is planned, but ${facts.files.get(partId)} watched files are measured in it`
+      );
     }
     if ("uses" in part) {
       if (!Array.isArray(part.uses)) {
@@ -2317,7 +2334,8 @@ function pageFor(plan, m) {
       name: part.name,
       zone: part.zone,
       lines: parts[i].lines,
-      files: parts[i].files
+      files: parts[i].files,
+      planned: part.planned === true
     })),
     externals.map((e) => ({ id: e.id, name: e.name })),
     { edges, connectors }
@@ -2399,6 +2417,7 @@ var FIXES = {
   "no-paths": "give the part at least one pattern in paths",
   "unknown-target": "name an existing part or external, or add it",
   "empty-part": "correct the part's paths so they match files, or remove the part",
+  "planned-has-files": "remove planned from the part now that it has code; if the files are not its code, correct the part's paths",
   "start-missing": "point start at a file in the repository",
   "start-elsewhere": "point start at a file this part measures",
   "self-use": "remove the use of the part itself",
