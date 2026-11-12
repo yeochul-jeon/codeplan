@@ -102,6 +102,14 @@ pull request에서는 `report`가 계획이 어떤 상태인지와 그 pull requ
 어느 part를 바꿨는지를 job summary에 넣을 Markdown으로 씁니다. 그
 워크플로는 [CI 참고 문서](skill/codeplan/docs/ci.md)에 있습니다.
 
+## CI 없이
+
+CI가 없거나 CI를 바꿀 수 없는 곳에서는 계획이 최신 상태가 아닌 pull
+request를 아무것도 막지 않습니다. 그래도 `check`는 자기 복제본의 pre-push
+훅에서나 정해진 주기로 돌릴 수 있고, `update`와 `summary`에는 둘 다
+필요하지 않습니다.
+[CI 없이 쓰기 참고 문서](skill/codeplan/docs/without-ci.md)를 보십시오.
+
 ## Claude Code 스킬로
 
 `skill/codeplan`은 스킬 폴더입니다. `SKILL.md`는 에이전트에게 계획을
@@ -125,6 +133,7 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
 - [draft](skill/codeplan/docs/draft.md)
 - [summary](skill/codeplan/docs/summary.md)
 - [CI](skill/codeplan/docs/ci.md)
+- [CI 없이](skill/codeplan/docs/without-ci.md)
 
 ## 알려진 제한
 

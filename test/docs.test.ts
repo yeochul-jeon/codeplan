@@ -244,6 +244,88 @@ describe("examples in the docs", () => {
   });
 });
 
+describe("the examples for use without CI", () => {
+  const text = doc("without-ci.md");
+  const section = (heading: string) => text.slice(text.indexOf(heading));
+  const firstBlock = (heading: string) => /```sh\n([\s\S]*?)```/.exec(section(heading))![1]!;
+  const env = { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` };
+  const sh = (cwd: string, ...args: string[]) => spawnSync("sh", args, { cwd, encoding: "utf8", env, timeout: 60_000 });
+  // A repository whose plan and page match its code.
+  const planned = () => {
+    const repo = makeRepo({
+      "package.json": lines(1),
+      "src/cart/index.ts": lines(4),
+      "src/cart/checkout.ts": lines(14),
+      "src/pay/charge.ts": lines(9),
+      "docs/codeplan/plan.json": /```json\n([\s\S]*?)```/.exec(doc("plan-file.md"))![1]!,
+      "docs/codeplan/codeplan.mjs": read(join(skill, "codeplan.mjs")),
+    });
+    expect(run(["update"], repo).code).toBe(0);
+    return repo;
+  };
+
+  test("the pre-push hook exits with 0 for a plan that matches and with 1 after a new file", () => {
+    const repo = planned();
+    expect(spawnSync("git", ["init", "-q"], { cwd: repo }).status).toBe(0);
+    const install = sh(repo, "-e", "-c", firstBlock("## Checking before your own push"));
+    expect(install.status, install.stderr).toBe(0);
+    // The hook file is run as git runs it: as a program, from the repository root.
+    const hook = () => spawnSync(join(repo, ".git/hooks/pre-push"), [], { cwd: repo, encoding: "utf8", env, timeout: 60_000 });
+    const before = hook();
+    expect(before.status, `${before.error}\n${before.stderr}`).toBe(0);
+    expect(before.stdout).toContain("check: ok");
+    writeFileSync(join(repo, "src/pay/refund.ts"), lines(6));
+    expect(hook().status).toBe(1);
+  });
+
+  test("the exclude line hides the four files from git", () => {
+    const repo = planned();
+    writeFileSync(join(repo, "codeplan.json"), "{}\n");
+    expect(spawnSync("git", ["init", "-q"], { cwd: repo }).status).toBe(0);
+    const status = () => spawnSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: repo, encoding: "utf8" }).stdout;
+    expect(status()).toContain("docs/codeplan/plan.json");
+    expect(sh(repo, "-e", "-c", firstBlock("## When the plan cannot be committed")).status).toBe(0);
+    expect(status()).not.toMatch(/codeplan/);
+    expect(status()).toContain("src/pay/charge.ts");
+    expect(run(["check"], repo).code).toBe(0);
+  });
+
+  test("the schedule script writes a report and a new base, and runs to its end when check fails", () => {
+    const pull = "git pull --quiet --ff-only || exit 2\n";
+    const shown = firstBlock("## Checking on a schedule");
+    expect(shown.startsWith("#!/bin/sh\n")).toBe(true);
+    // The test has no remote, so the pull line is left out.
+    expect(shown).toContain(pull);
+    const repo = planned();
+    const records = join(makeRepo({}), "records");
+    const script = join(makeRepo({ "codeplan-record.sh": shown.replace(pull, "") }), "codeplan-record.sh");
+    const report = () => {
+      const names = readdirSync(records).sort();
+      expect(names).toHaveLength(2);
+      expect(names[0]).toBe("base.json");
+      expect(names[1]).toMatch(/^report-\d{4}-\d{2}-\d{2}\.md$/);
+      return read(join(records, names[1]!));
+    };
+    const base = () => JSON.parse(read(join(records, "base.json"))) as { snapshot: number; parts: { id: string; files: number }[] };
+
+    // The first run has no base: the state alone.
+    const first = sh(repo, script, repo, records);
+    expect(first.status, first.stderr).toBe(0);
+    expect(report()).toBe("## codeplan\n\ncheck: ok\n\ncheck exit code: 0\n");
+    expect(base().snapshot).toBe(1);
+    expect(base().parts.find((p) => p.id === "pay")!.files).toBe(1);
+
+    // New code and no update: check exits with 1 and the script goes on.
+    writeFileSync(join(repo, "src/pay/refund.ts"), lines(6));
+    const second = sh(repo, script, repo, records);
+    expect(second.status, second.stderr).toBe(0);
+    expect(report()).toContain("| pay | 1 → 2 | 9 → 15 | changed |");
+    expect(report()).toContain("page outdated");
+    expect(report().endsWith("\ncheck exit code: 1\n")).toBe(true);
+    expect(base().parts.find((p) => p.id === "pay")!.files).toBe(2);
+  });
+});
+
 describe("the skill folder", () => {
   test("SKILL.md has only the allowed header keys and a short body", () => {
     const text = read(join(skill, "SKILL.md"));

@@ -103,6 +103,13 @@ For pull requests, `report` writes what state the plan is in and which
 parts the pull request changed, as Markdown for the job summary. The
 workflow for it is in the [CI reference](skill/codeplan/docs/ci.md).
 
+## Without CI
+
+Where there is no CI, or you cannot change it, nothing stops a pull request
+whose plan is out of date. `check` can still run from a pre-push hook in
+your own clone or on a schedule, and `update` and `summary` need neither.
+See the [reference for use without CI](skill/codeplan/docs/without-ci.md).
+
 ## As a Claude Code skill
 
 `skill/codeplan` is a skill folder: `SKILL.md` tells an agent how to make
@@ -125,6 +132,7 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
 - [draft](skill/codeplan/docs/draft.md)
 - [summary](skill/codeplan/docs/summary.md)
 - [CI](skill/codeplan/docs/ci.md)
+- [Without CI](skill/codeplan/docs/without-ci.md)
 
 ## Known limits
 

@@ -28,6 +28,8 @@ to this file:
 - [draft](docs/draft.md): how `draft` proposes parts
 - [summary](docs/summary.md): the plan as Markdown and mermaid
 - [CI](docs/ci.md): a pull request workflow with `snapshot` and `report`
+- [without CI](docs/without-ci.md): a pre-push hook, a check on a schedule,
+  and a plan that is not committed
 
 ## When codeplan fits
 
@@ -247,6 +249,12 @@ To show on a pull request what it changed (which parts grew, new
 directories that a wide pattern took in), add `snapshot` of the base and
 `report` to the workflow; `report` never fails the job. The whole workflow
 is in [CI](docs/ci.md).
+
+When the repository has no CI, or the person cannot change it, `check`
+stops no pull request. [Without CI](docs/without-ci.md) shows a pre-push
+hook, a script for a schedule, and how to keep the plan out of the
+commits. Do not install the hook or the schedule yourself: show the person
+the commands and ask whether they want them.
 
 ## Moving to a new version of codeplan.mjs
 
