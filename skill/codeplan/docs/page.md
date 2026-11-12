@@ -35,7 +35,7 @@ the plan file is always shown as text, never as HTML.
 
 When the plan has tasks, the page lists them under the picture, above the
 scenario controls. Tasks that are `todo` or `doing` come first, in plan file
-order. The `done` tasks follow in one group that starts closed, titled
+order. The `done` tasks follow in one list that starts closed, titled
 `Done (<k>)` with their number.
 
 A task is one row, read from the left: its name (or the id when the name is
@@ -46,9 +46,9 @@ repository. A status has no colour of its own; the word says it.
 
 A row is a button. Choosing it highlights the task's parts: the parts named
 in its `parts`, and the parts that own a file of its `makes`. Other parts
-are not dimmed, and no line or external is highlighted. The files of `makes`
+stay as they are, and no line or external is highlighted. The files of `makes`
 that are not in the repository are listed under the rows. When the task is
-in the `done` group, the group opens. Choosing the same row again, or Esc,
+in the `done` list, that list opens. Choosing the same row again, or Esc,
 ends it.
 
 A chosen task and a scenario walk-through end each other: choosing a task

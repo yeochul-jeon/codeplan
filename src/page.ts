@@ -239,7 +239,7 @@ const VIEWER = `
   }
 
   // The task pane: one button for each task, the done tasks in a closed
-  // group after the others. Choosing a task marks its parts; a scenario
+  // details element after the others. Choosing a task marks its parts; a scenario
   // walk-through and a chosen task end each other.
   var pane = document.getElementById("tasks");
   var written = Object.create(null);
@@ -248,7 +248,7 @@ const VIEWER = `
   var taskRows = Object.create(null);
   var chosen = null;
   var current = null;
-  function addTask(task, parent, group) {
+  function addTask(task, parent, fold) {
     var from = written[task.id];
     var button = html("button", parent);
     button.type = "button";
@@ -269,7 +269,7 @@ const VIEWER = `
       make("rect", { x: 0.5, y: 0.5, width: 65, height: 9, "class": "bar-line" }, bar);
       make("rect", { x: 1, y: 1, width: Math.round(64 * n / m), height: 8, "class": "bar-fill" }, bar);
     }
-    taskRows[task.id] = { button: button, group: group, marks: task.marks, missing: null };
+    taskRows[task.id] = { button: button, fold: fold, marks: task.marks, missing: null };
     button.addEventListener("click", function () {
       if (chosen === task.id) endTask();
       else chooseTask(task.id);
@@ -282,10 +282,10 @@ const VIEWER = `
       else addTask(tasks[a], pane, null);
     }
     if (doneCount > 0) {
-      var doneGroup = html("details", pane);
-      html("summary", doneGroup).textContent = "Done (" + doneCount + ")";
+      var doneFold = html("details", pane);
+      html("summary", doneFold).textContent = "Done (" + doneCount + ")";
       for (var b = 0; b < tasks.length; b++) {
-        if (written[tasks[b].id].status === "done") addTask(tasks[b], doneGroup, doneGroup);
+        if (written[tasks[b].id].status === "done") addTask(tasks[b], doneFold, doneFold);
       }
     }
     for (var g = 0; g < tasks.length; g++) {
@@ -313,7 +313,7 @@ const VIEWER = `
     var row = taskRows[id];
     chosen = id;
     row.button.setAttribute("aria-pressed", "true");
-    if (row.group) row.group.setAttribute("open", "");
+    if (row.fold) row.fold.setAttribute("open", "");
     for (var i = 0; i < row.marks.length; i++) {
       if (rects[row.marks[i]]) rects[row.marks[i]].setAttribute("data-active", "");
     }
