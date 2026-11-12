@@ -1,0 +1,184 @@
+import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, test } from "vitest";
+import { COMMANDS, OPTIONS, run } from "../src/cli.js";
+import { KEYS } from "../src/config.js";
+import { THEMES } from "../src/page.js";
+import { diagnosePlan, KNOWN, preparePlan, SEVERITY } from "../src/validate.js";
+import { lines, makeRepo } from "./helpers.js";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const skill = join(root, "skill/codeplan");
+const docsDir = join(skill, "docs");
+const DOCS = [
+  join(root, "README.md"),
+  join(skill, "SKILL.md"),
+  ...readdirSync(docsDir)
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => join(docsDir, f)),
+];
+const read = (path: string) => readFileSync(path, "utf8");
+const doc = (name: string) => read(join(docsDir, name));
+
+// Text outside code blocks and inline code.
+const prose = (text: string) => text.replace(/```[\s\S]*?```/g, "").replace(/`[^`]*`/g, "");
+
+// The backticked names in the first column of the tables under a heading.
+function firstColumn(text: string, heading: string): string[] {
+  const start = text.indexOf(heading);
+  if (start < 0) throw new Error(`no heading ${heading}`);
+  const next = text.slice(start + heading.length).search(/\n#{1,2} /);
+  const section = next < 0 ? text.slice(start) : text.slice(start, start + heading.length + next);
+  return [...section.matchAll(/^\| `([^`]+)`/gm)].map((m) => m[1]!.split(" ")[0]!);
+}
+
+const sorted = (items: Iterable<string>) => [...new Set(items)].sort();
+
+describe("names in the code and in the docs", () => {
+  test("diagnostic codes", () => {
+    expect(sorted(firstColumn(doc("diagnostics.md"), "## Codes"))).toEqual(sorted(Object.keys(SEVERITY)));
+  });
+  test("commands and options", () => {
+    const text = doc("commands.md");
+    const names = firstColumn(text, "# Commands");
+    expect(sorted(names.filter((n) => !n.startsWith("--")))).toEqual(sorted(COMMANDS));
+    expect(sorted(names.filter((n) => n.startsWith("--")))).toEqual(sorted(OPTIONS));
+  });
+  test("config keys", () => {
+    expect(sorted(firstColumn(doc("config.md"), "## Keys"))).toEqual(sorted(KEYS));
+  });
+  test("plan file keys", () => {
+    expect(sorted(firstColumn(doc("plan-file.md"), "## Fields"))).toEqual(sorted(Object.values(KNOWN).flat()));
+  });
+  test("theme tokens", () => {
+    expect(sorted(firstColumn(doc("page.md"), "## Themes"))).toEqual(sorted(Object.keys(THEMES.light)));
+    const all = DOCS.flatMap((f) => [...read(f).matchAll(/--cp-[a-z-]+/g)].map((m) => m[0]));
+    for (const token of all) expect(Object.keys(THEMES.light)).toContain(token);
+  });
+  test("every --option named in the docs exists", () => {
+    const named = DOCS.flatMap((f) => [...read(f).matchAll(/`(--[a-z][a-z-]*)/g)].map((m) => m[1]!));
+    for (const option of named) {
+      if (option.startsWith("--cp-")) continue;
+      expect(OPTIONS, option).toContain(option);
+    }
+  });
+});
+
+describe("examples in the docs", () => {
+  test("every JSON example parses, and every plan file example has no error", () => {
+    let plans = 0;
+    for (const file of DOCS) {
+      for (const m of read(file).matchAll(/```json\n([\s\S]*?)```/g)) {
+        const value = JSON.parse(m[1]!) as Record<string, unknown>;
+        if (value && typeof value === "object" && "format" in value && "parts" in value) {
+          plans++;
+          const errors = diagnosePlan(preparePlan(value), { repo: root, files: new Map(), owners: new Map() }).filter(
+            (d) => d.severity === "error",
+          );
+          expect(errors, file).toEqual([]);
+        }
+      }
+    }
+    expect(plans).toBeGreaterThan(0);
+  });
+
+  test("the README quick start runs and check exits with 0", () => {
+    const readme = read(join(root, "README.md"));
+    const section = readme.slice(readme.indexOf("## Quick start"));
+    const script = /```sh\n([\s\S]*?)```/.exec(section)![1]!.replaceAll("/path/to/codeplan", root);
+    const repo = makeRepo({
+      "package.json": lines(1),
+      "src/shop/cart.ts": lines(3),
+      "src/shop/pay.ts": lines(2),
+      "src/admin/panel.ts": lines(4),
+    });
+    const out = spawnSync("sh", ["-e", "-c", script], {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` },
+      timeout: 60_000,
+    });
+    expect(out.status, out.stderr + out.stdout).toBe(0);
+    expect(out.stdout).toContain("check: ok");
+    expect(run(["check"], repo).code).toBe(0);
+  });
+
+  test("the SKILL.md first-plan commands keep the other keys of a codeplan.json that is already there", () => {
+    const text = read(join(skill, "SKILL.md"));
+    const section = text.slice(text.indexOf("## The repository has no plan yet"));
+    const script = /```sh\n([\s\S]*?)```/.exec(section)![1]!;
+    expect(script).toContain("node -e");
+    const repo = makeRepo({
+      "package.json": lines(1),
+      "src/shop/cart.ts": lines(3),
+      "src/admin/panel.ts": lines(4),
+      "vendor/lib.ts": lines(5),
+      "codeplan.json": `${JSON.stringify({ skip: ["vendor/**"], tests: false, watch: ["old/**"] })}\n`,
+    });
+    const out = spawnSync("sh", ["-e", "-c", script], {
+      cwd: repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`,
+        CLAUDE_SKILL_DIR: skill,
+      },
+      timeout: 60_000,
+    });
+    expect(out.status, out.stderr + out.stdout).toBe(0);
+    expect(JSON.parse(read(join(repo, "codeplan.json")))).toEqual({ skip: ["vendor/**"], tests: false, languages: ["js"] });
+    expect(existsSync(join(repo, "codeplan-draft.json"))).toBe(false);
+    expect(run(["update"], repo).code).toBe(0);
+    expect(run(["check"], repo).code).toBe(0);
+  });
+});
+
+describe("the skill folder", () => {
+  test("SKILL.md has only the allowed header keys and a short body", () => {
+    const text = read(join(skill, "SKILL.md"));
+    expect(text.startsWith("---\n")).toBe(true);
+    const end = text.indexOf("\n---\n", 4);
+    const header = text.slice(4, end);
+    const keys = header.split("\n").map((l) => l.slice(0, l.indexOf(":")));
+    expect(keys.filter((k) => !["name", "description", "license"].includes(k))).toEqual([]);
+    expect(header).toMatch(/^name: codeplan$/m);
+    expect(header).toMatch(/^license: MIT$/m);
+    const description = /^description: (.*)$/m.exec(header)![1]!;
+    expect(description.length).toBeLessThanOrEqual(1536);
+    expect(description).toMatch(/^Use when /);
+    const body = text.slice(end + 5);
+    expect(body.split("\n").length).toBeLessThan(500);
+    expect(body).toContain("${CLAUDE_SKILL_DIR}/codeplan.mjs");
+  });
+
+  test("the committed codeplan.mjs matches a fresh build", () => {
+    const out = spawnSync(process.execPath, [join(root, "scripts/build.mjs"), "--check"], { encoding: "utf8", timeout: 60_000 });
+    expect(out.status, out.stderr).toBe(0);
+  });
+});
+
+describe("the text of the docs", () => {
+  test("relative links point at files that exist", () => {
+    for (const file of DOCS) {
+      for (const m of read(file).matchAll(/\]\(([^)]+)\)/g)) {
+        const target = m[1]!;
+        if (/^[a-z]+:/.test(target) || target.startsWith("#")) continue;
+        expect(existsSync(resolve(dirname(file), target.split("#")[0]!)), `${file}: ${target}`).toBe(true);
+      }
+    }
+  });
+
+  test("no section signs, case numbers, or words the docs do not use", () => {
+    for (const file of DOCS) {
+      const text = read(file);
+      expect(text, file).not.toContain("§");
+      expect(text, file).not.toMatch(/\bE\d{1,3}\b/);
+      expect(prose(text), file).not.toMatch(
+        /\b(drift|stale|falls behind|unmapped|unclaimed|footprint|payload|proposer|scanner|authored|appendix|specification)\b/i,
+      );
+      expect(text, file).not.toMatch(/^#+ (Gotchas|What not to do|Before you start|Scale|Voice|Step \d+)/m);
+    }
+  });
+});
