@@ -22,7 +22,7 @@ codeplan works with JavaScript and TypeScript, and with Java and Kotlin
 only Node 22 or later; nothing is installed into the repository's
 dependencies.
 
-The idea was inspired by almendili's [architecture-map](https://github.com/almendili/skills); this project shares no code with it.
+The idea was inspired by almendili's architecture-map.
 
 ## Quick start
 
@@ -117,6 +117,8 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
 
 ## Known limits
 
+- The lines between parts are the uses people wrote in the plan file.
+  `check` does not look for uses in the code that the plan leaves out.
 - A scenario is stepped through by hand; there is no automatic playback.
 - The theme choice is kept per browser, not in the page.
 - A file whose name contains a backslash cannot be written as a `start`.
