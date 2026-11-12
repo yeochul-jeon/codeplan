@@ -3,14 +3,17 @@
 [English](README.md) · 한국어
 
 codeplan은 저장소의 계획을 코드 옆에 두고, part와 어느 part가 어느 part를
-쓰는지, part를 거치는 scenario를 보여 주는 page를 씁니다. 계획 파일이 최신
+쓰는지, part를 거치는 scenario를 보여 주는 page를 씁니다. page는 계획에
+적은 task도 나열하고, task마다 상태와 만들 파일 가운데 있는 파일 수를
+보여 줍니다. 계획 파일이 최신
 상태가 아니면 `check` 명령이 0이 아닌 코드로 끝납니다. `check`는 CI에서
 돌려 pull request를 막을 수도 있고, CI 없이 pre-push 훅에서나 정해진
 주기로 돌릴 수도 있습니다.
 
 계획에는 두 가지 내용이 있습니다. 사람이 쓰는 것: 저장소를 part로 나눈
 것과 각 part의 이름과 설명, 어느 part가 어느 part를 쓰는지, part가 쓰는
-바깥 시스템(external), 요청 하나를 part를 거쳐 따라가는 scenario. 도구가
+바깥 시스템(external), 요청 하나를 part를 거쳐 따라가는 scenario, 그리고
+task(상태와 만들 파일을 적은 일 단위). 도구가
 세는 것: 각 part가 가진 파일과 줄 수이며, 계획 파일의 glob 패턴으로
 셉니다. 이 둘로 codeplan은 HTML page 하나를 씁니다. 이 page는 part를
 그리고, 읽는 사람이 scenario를 한 step씩 넘겨 볼 수 있게 합니다.

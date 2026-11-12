@@ -89,6 +89,7 @@ describe("snapshot", () => {
       orphans: [],
       contested: [],
       unwatched: [],
+      tasks: [],
       diagnostics: [],
     };
     expect(out.stdout).toBe(`${JSON.stringify(expected, null, 2)}\n`);

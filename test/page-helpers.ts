@@ -38,6 +38,7 @@ export interface Block {
   measure: { parts: { id: string; files: number; lines: number }[]; files: number; lines: number };
   orphans: string[];
   unwatched: number;
+  tasks: { id: string; marks: string[]; missing: string[] }[];
   layout: {
     width: number;
     height: number;
@@ -243,7 +244,7 @@ export function expectPage(repo: string, pagePath: string): Block {
   for (const m of raw.matchAll(/\\u([0-9a-fA-F]{4})/g)) {
     if (["003c", "003e", "0026", "2028", "2029"].includes(m[1]!.toLowerCase())) expect(m[1]).toBe(m[1]!.toLowerCase());
   }
-  expect(keysOf(block)).toEqual(["format", "plan", "measure", "orphans", "unwatched", "layout"]);
+  expect(keysOf(block)).toEqual(["format", "plan", "measure", "orphans", "unwatched", "tasks", "layout"]);
   expect(block.format).toBe(2);
   expect(keysOf(block.measure)).toEqual(["parts", "files", "lines"]);
   for (const p of block.measure.parts) expect(keysOf(p)).toEqual(["id", "files", "lines"]);

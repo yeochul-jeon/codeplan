@@ -48,18 +48,30 @@ jobs:
 
 ## What report prints
 
-For a pull request that adds one file of 6 lines to the part `pay`:
+For the example in [plan file](plan-file.md) and a pull request that adds
+`src/pay/refund.ts`, a file of 6 lines that the task `refunds` is to make:
 
 ````markdown
 ## codeplan
 
 check: ok
 
+### Tasks
+
+| Task | Status | Files |
+|---|---|---|
+| refunds | doing | 1 of 1 |
+| basket-total | done | 1 of 1 |
+
 ### Changes
 
 | Part | Files | Lines | Change |
 |---|---|---|---|
 | pay | 1 → 2 | 9 → 15 | changed |
+
+| Task | Status | Files | Change |
+|---|---|---|---|
+| refunds | doing → doing | 0 of 1 → 1 of 1 | changed |
 ````
 
 The blocks, in order; one that has nothing to say is left out:
@@ -71,10 +83,12 @@ The blocks, in order; one that has nothing to say is left out:
 | `### Files in no part` | The orphan files. When counting is incomplete, one sentence says so in place of the list. |
 | `### Contested files` | Each contested file and the parts that own it equally. |
 | `### Unwatched files` | Code outside the watch set. |
-| `### Changes` | Only with `--base`: a table of the parts whose counts changed, new parts and removed parts. |
+| `### Tasks` | A table of the tasks: id, status and `<n> of <m>`, the number of the task's `makes` paths that are files in the repository. Files is empty for a task with no `makes`. |
+| `### Changes` | Only with `--base`: a table of the parts whose counts changed, new parts and removed parts, then a table of the tasks that changed, new tasks and removed tasks. |
 | `### New directories` | Only with `--base`: directories that had no watched file in the base and whose files went to a part through a pattern that starts above the directory. |
 
-A list shows 30 items and then the number of the rest.
+A list shows 30 items and then the number of the rest. A table of tasks
+shows 30 rows and then a sentence with the number of the rest.
 
 In the Changes table, parts are matched by id: a part whose id changed is
 one `new` row and one `removed` row. A planned part that now has files is
@@ -83,6 +97,15 @@ between base and head, a sentence says that some changes come from the new
 rules, and the directory notes are left out. When the base has no plan file,
 or counting is incomplete on either side, a sentence says so in place of the
 table.
+
+In the table of task changes, tasks are matched by id. A task is `changed`
+when its status, the paths in its `makes` or the paths that are not there
+differ; the row then gives status and count on both sides, such as
+`doing → done` and `1 of 2 → 2 of 2`, also when one of them stayed the same.
+When no task changed, a sentence says so. When the plan file has an error on
+either side, a sentence says that task changes are not shown. With no tasks
+on either side there is nothing about tasks. A base snapshot made before
+tasks existed counts as having none.
 
 A directory note such as
 `src/newpkg/: 2 files went to part core through src/**` points at new code
@@ -114,7 +137,8 @@ they are.
 | `orphans` | The orphan files; empty when `complete` is `false`. |
 | `contested` | Each contested file with its `path` and `parts`. |
 | `unwatched` | Code outside the watch set. |
-| `diagnostics` | The findings, each with `at`, `code`, `severity`, `message` and `fix`. |
+| `tasks` | The tasks in plan file order, each with `id`, `status` (`null` when the plan file's value is not one of the three), `makes` (its paths, each once) and `missing` (those that are not files in the repository). |
+| `diagnostics` | The findings, each with `at`, `code`, `severity` (`error`, `warning` or `info`), `message` and `fix`. |
 
 Paths are in code unit order. The document holds no time and no absolute
 path, so the same tree gives the same bytes.

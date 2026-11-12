@@ -1,5 +1,5 @@
 // Which files are watched, and which part owns each of them.
-import { readdirSync, readFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LANGUAGES, isUnder, type Config } from "./config.js";
 import { GlobSet, compileGlob, strength } from "./glob.js";
@@ -160,6 +160,36 @@ export class Rules {
     if (!this.codeExtSet.has(extensionOf(path)) && !this.matchesMapperGlob(path)) return false;
     return !this.isWatched(path) && !this.excluded(path);
   }
+}
+
+// A regular file at `path` with no symbolic link on the way from the
+// repository root. Anything else (nothing there, a directory, a link, a
+// place that cannot be read) is not a file.
+export function isPlainFile(repo: string, path: string): boolean {
+  const segments = path.split("/");
+  try {
+    for (let i = 1; i <= segments.length; i++) {
+      const stat = lstatSync(join(repo, ...segments.slice(0, i)), { throwIfNoEntry: false });
+      if (stat === undefined || stat.isSymbolicLink()) return false;
+      if (i === segments.length) return stat.isFile();
+      if (!stat.isDirectory()) return false;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+// Whether a file at `path`, if it were made, would be watched and matched
+// by no pattern of any part. Only the written path is looked at.
+export function unownedTest(config: Config, plan: PlanPart[]): (path: string) => boolean {
+  const rules = new Rules(config);
+  const patterns = plan.flatMap((part) => part.paths.map((p) => compileGlob(p)));
+  return (path) => {
+    const dirs = path.split("/").slice(0, -1);
+    if (dirs.some((d) => rules.prunedDirs.has(d))) return false;
+    return rules.isWatched(path) && !patterns.some((regex) => regex.test(path));
+  };
 }
 
 export function measure(repo: string, config: Config, plan: PlanPart[]): Measurement {

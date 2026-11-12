@@ -1,8 +1,8 @@
 # Plan file
 
 The plan file is `<home>/plan.json` (by default `docs/codeplan/plan.json`).
-People write its names, descriptions, `uses` and scenarios; the tool counts
-files and lines for each part from its `paths`.
+People write its names, descriptions, `uses`, scenarios and tasks; the tool
+counts files and lines for each part from its `paths`.
 
 ```json
 {
@@ -44,6 +44,10 @@ files and lines for each part from its `paths`.
         { "at": "ledger", "does": "Keeps the charge." }
       ]
     }
+  ],
+  "tasks": [
+    { "id": "refunds", "name": "Refunds", "status": "doing", "parts": ["pay"], "makes": ["src/pay/refund.ts"] },
+    { "id": "basket-total", "name": "Basket total", "status": "done", "parts": ["cart"], "makes": ["src/cart/checkout.ts"] }
   ]
 }
 ```
@@ -60,6 +64,7 @@ files and lines for each part from its `paths`.
 | `parts` | yes | The parts, as an array. May be empty. |
 | `externals` | no | Things the code uses that are not in this repository (databases, outside APIs, other repositories). Missing means `[]`. |
 | `scenarios` | no | Paths one request takes through parts and externals. Missing means `[]`. |
+| `tasks` | no | Units of work, each with its status. Missing means `[]`. |
 | `note` | no | A note for people. |
 
 ### Part
@@ -113,15 +118,51 @@ remove `planned` in the change that adds the code. The tool never changes
 | `does` | yes | What happens there (step). |
 | `note` | no | A note for people (scenario or step). |
 
+### Task
+
+| Field | Required | What to write |
+|---|---|---|
+| `id` | yes | A unique id. |
+| `name` | yes | What the work is. May be empty; the page then shows the id. |
+| `status` | yes | `todo`, `doing` or `done`, in exactly these letters. |
+| `parts` | no | The ids of the parts the task works on. Missing means `[]`. An id written twice counts once. |
+| `makes` | no | The files the task is to make, as paths from the repository root. Missing means `[]`. A path written twice counts once. |
+| `note` | no | A note for people. |
+
+A task is a unit of work that people write down with its status. One task
+may name several parts. People set `status`; the tool never changes it, and
+`draft` does not write tasks.
+
+For each task the tool counts how many of the paths in `makes` are files in
+the repository. A path is a file there when a regular file is at that place
+and no directory on the way to it is a symbolic link; whether the file is in
+the watch set does not matter. A path in `makes` is one file, not a glob. A
+task that only changes files that are already there leaves `makes` out and
+has only its `status`.
+
+`check` gives an info finding when the count and the status do not go
+together: a `done` task with a file that is not there
+(`task-done-missing`), a `todo` task with a file that is there
+(`task-todo-has-files`), and a path that no part would own once the file is
+made (`task-path-unowned`). A `doing` task gets no finding about its count.
+An info finding does not change an exit code.
+
+Tasks change nothing else: not the watch set, not which part owns a file,
+not the counts of a part, and not the layout of the page.
+
 ## Rules
 
 - An id is not empty, uses only lowercase ASCII letters, digits and
   hyphens, and does not start or end with a hyphen. This applies to the ids
-  of parts, externals and scenarios and to `to` and `at`.
-- Ids are unique across parts, externals and scenarios together.
+  of parts, externals, scenarios and tasks, to `to` and `at`, and to the
+  ids in a task's `parts`.
+- Ids are unique across parts, externals, scenarios and tasks together.
+- A task's `parts` names parts only. A task id is not a target: `to`, `at`
+  and `{id}` in a text cannot name a task.
 - `paths` must hold at least one glob; each must be a non-empty string.
-- `start` follows the path form in [config](config.md#path-values). A file
-  name with a backslash cannot be written as a `start`.
+- `start` and each path in `makes` follow the path form in
+  [config](config.md#path-values). A file name with a backslash cannot be
+  written as a `start`.
 - Text fields (`name`, `about`, `why`, `does`, `zone`) may be empty.
 - An unknown key is an error, except `note`, which any object may have. The
   tool keeps `note` but does not read it.

@@ -124,7 +124,7 @@ export function openViewer(pageFile: string, hash = "", storage: Storage = new M
   // The early theme script in the head, then the viewer at the end.
   if (scripts.length !== 2) throw new Error(`expected two scripts, found ${scripts.length}`);
   const doc = new FakeDocument();
-  for (const id of ["tools", "plane", "walk", "legend", "codeplan-data"]) {
+  for (const id of ["tools", "plane", "tasks", "walk", "legend", "codeplan-data"]) {
     const el = new El(id === "plane" ? "svg" : id === "codeplan-data" ? "script" : "div", doc);
     doc.byId.set(id, el);
   }

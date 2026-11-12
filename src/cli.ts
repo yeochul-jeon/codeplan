@@ -3,13 +3,13 @@ import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rm
 import { basename, dirname, join, resolve } from "node:path";
 import { SettingsError, readConfig, type Config } from "./config.js";
 import { DraftError, draft } from "./draft.js";
-import { measure, type Measurement } from "./measure.js";
+import { isPlainFile, measure, unownedTest, type Measurement } from "./measure.js";
 import { planPath, readPlanFile, type PlanPart } from "./plan.js";
 import { readSnapshot, reportText, snapshotText, takeSnapshot, type PageState, type Snapshot } from "./report.js";
 import { layOut } from "./layout.js";
 import { PAGE_MARK, pageHtml } from "./page.js";
 import { mermaidText, summaryText } from "./summary.js";
-import { diagnosePlan, diagnostic, preparePlan, type Diagnostic } from "./validate.js";
+import { diagnosePlan, diagnostic, planTasks, preparePlan, type Diagnostic, type PlanTask } from "./validate.js";
 
 export interface RunResult {
   code: number;
@@ -28,6 +28,8 @@ export type CheckResult =
       measured: PlanPart[];
       measurement: Measurement;
       diagnostics: Diagnostic[];
+      // The tasks of the plan, with which of their files are there.
+      tasks: PlanTask[];
       // Parts left out of measurement; when any, orphans are not listed.
       excluded: number;
       // The page as update would write it now, or null when update would
@@ -47,7 +49,8 @@ Commands:
   draft   Read the repository and print a first plan.json and codeplan.json
           as one JSON document on standard output. Writes nothing.
   summary Print the plan as Markdown on standard output: the parts with
-          their counts, uses, externals, scenarios and a mermaid diagram.
+          their counts, uses, externals, scenarios, tasks and a mermaid
+          diagram.
           Writes nothing and does not read the viewer page.
   snapshot Print what check finds as JSON on standard output: the config
           used, each part's counts, which pattern owns each file, the
@@ -148,12 +151,16 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
     const plan = planPath(config.home);
     const measurement = measure(repo, config, []);
     const diagnostics = [diagnostic("no-plan", "plan", `${plan} not found, so every watched file is an orphan`)];
-    return { kind: "measured", config, plan: null, measured: [], measurement, diagnostics, excluded: 0, page: notCompared };
+    return { kind: "measured", config, plan: null, measured: [], measurement, diagnostics, tasks: [], excluded: 0, page: notCompared };
   }
   const prepared = preparePlan(file.value);
   const measurement = measure(repo, config, prepared.parts);
+  const isFile = (path: string) => isPlainFile(repo, path);
+  const tasks = planTasks(prepared, isFile);
   const diagnostics = diagnosePlan(prepared, {
     repo,
+    isFile,
+    unowned: unownedTest(config, prepared.parts),
     files: new Map(measurement.parts.map((p) => [p.id, p.files])),
     owners: measurement.owners,
   });
@@ -164,6 +171,7 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
     measured: prepared.parts,
     measurement,
     diagnostics,
+    tasks,
     excluded: prepared.excluded,
   };
   if (
@@ -174,7 +182,7 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
   ) {
     return { ...result, page: notCompared };
   }
-  const bytes = Buffer.from(pageFor(file.value, measurement), "utf8");
+  const bytes = Buffer.from(pageFor(file.value, measurement, tasks), "utf8");
   const current = place.kind === "page" && place.bytes.equals(bytes);
   const state = place.kind === "absent" ? "missing" : current ? "ok" : "outdated";
   return { ...result, page: { path: config.page, bytes, current, state } };
@@ -182,7 +190,7 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
 
 // The page for a plan with no error diagnostic: every part is an object
 // with a proper id, name and paths, and was measured, in plan order.
-function pageFor(plan: unknown, m: Measurement): string {
+function pageFor(plan: unknown, m: Measurement, tasks: PlanTask[]): string {
   type Raw = {
     parts: { id: string; name: string; zone?: string; planned?: boolean; uses?: { to: string }[] }[];
     externals?: { id: string; name: string }[];
@@ -235,6 +243,12 @@ function pageFor(plan: unknown, m: Measurement): string {
     },
     orphans: m.orphans,
     unwatched: m.unwatched.length,
+    // marks: the parts the task names and the parts that hold its files, in
+    // plan order.
+    tasks: tasks.map((task) => {
+      const marked = new Set([...task.parts, ...task.makes.map((path) => m.owners.get(path))]);
+      return { id: task.id, marks: parts.map((p) => p.id).filter((id) => marked.has(id)), missing: task.missing };
+    }),
     layout,
   });
 }
@@ -297,9 +311,9 @@ function update(repo: string): RunResult {
 
 const FIXES: Record<string, string> = {
   "bad-shape": "give the field at that place the type and form of the plan format, or remove an unknown key",
-  "repeated-id": "give each part, external and scenario an id of its own",
+  "repeated-id": "give each part, external, scenario and task an id of its own",
   "no-paths": "give the part at least one pattern in paths",
-  "unknown-target": "name an existing part or external, or add it",
+  "unknown-target": "name an existing part or external, or add it; the parts of a task name parts only",
   "empty-part": "correct the part's paths so they match files, or remove the part",
   "planned-has-files":
     "remove planned from the part now that it has code; if the files are not its code, correct the part's paths",
@@ -311,6 +325,9 @@ const FIXES: Record<string, string> = {
   "short-scenario": "give the scenario two steps or more",
   "gap-in-scenario": "add a use between the two steps' parts, or a step between them",
   "unknown-reference": "write the id of an existing part or external in the braces",
+  "task-done-missing": "make the files that are not there, take them out of makes, or set the status the task has now",
+  "task-todo-has-files": "nothing has to change; if the files are not what this task makes, correct makes",
+  "task-path-unowned": "add a pattern for the path to a part's paths, or correct the path in makes",
 };
 
 const fixFor = (code: string, plan: string): string =>
@@ -336,6 +353,7 @@ function snapshotOf(repo: string): Snapshot | RunResult {
     measured: result.measured,
     measurement: result.measurement,
     diagnostics: result.diagnostics,
+    tasks: result.tasks,
     excluded: result.excluded,
     pageState: result.page.state,
     fix: (code) => fixFor(code, plan),
@@ -373,7 +391,7 @@ function summary(repo: string, mermaid: boolean): RunResult {
   if (result.plan === null || result.diagnostics.some((d) => d.severity === "error")) {
     return { code: 2, stdout: "", stderr };
   }
-  const stdout = mermaid ? mermaidText(result.plan) : summaryText(result.plan, result.measurement);
+  const stdout = mermaid ? mermaidText(result.plan) : summaryText(result.plan, result.measurement, result.tasks);
   return { code: 0, stdout, stderr };
 }
 
@@ -423,9 +441,9 @@ function checkReport(result: CheckResult & { kind: "measured" }): RunResult {
   stderr += findingLines(diagnostics, plan);
 
   const errors = diagnostics.filter((d) => d.severity === "error").length;
-  const warnings = diagnostics.length - errors;
+  const warnings = diagnostics.filter((d) => d.severity === "warning").length;
   const problems = orphans.length + m.contested.length + m.unwatched.length;
-  if (problems === 0 && diagnostics.length === 0 && excluded === 0 && !outdated) {
+  if (problems === 0 && errors === 0 && warnings === 0 && excluded === 0 && !outdated) {
     stdout += "check: ok\n";
     return { code: 0, stdout, stderr };
   }

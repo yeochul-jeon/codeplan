@@ -4,8 +4,8 @@ import type { Config } from "./config.js";
 import { fixedHead } from "./glob.js";
 import { byCodeUnit, type Measurement } from "./measure.js";
 import type { PlanPart } from "./plan.js";
-import { plain } from "./summary.js";
-import type { Diagnostic } from "./validate.js";
+import { filesCell, plain } from "./summary.js";
+import { STATUSES, type Diagnostic, type PlanTask, type Status } from "./validate.js";
 
 export const SNAPSHOT_FORMAT = 1;
 // Raised when a change makes the same tree measure differently.
@@ -34,7 +34,15 @@ export interface Snapshot {
   orphans: string[];
   contested: { path: string; parts: string[] }[];
   unwatched: string[];
+  tasks: SnapshotTask[];
   diagnostics: (Diagnostic & { fix: string })[];
+}
+
+interface SnapshotTask {
+  id: string;
+  status: Status | null;
+  makes: string[];
+  missing: string[];
 }
 
 export function takeSnapshot(found: {
@@ -43,6 +51,7 @@ export function takeSnapshot(found: {
   measured: PlanPart[];
   measurement: Measurement;
   diagnostics: Diagnostic[];
+  tasks: PlanTask[];
   excluded: number;
   pageState: PageState;
   fix: (code: string) => string;
@@ -80,6 +89,7 @@ export function takeSnapshot(found: {
       .map((c) => ({ path: c.path, parts: [...c.parts].sort(byCodeUnit) }))
       .sort((a, b) => byCodeUnit(a.path, b.path)),
     unwatched: [...m.unwatched].sort(byCodeUnit),
+    tasks: found.tasks.map((t) => ({ id: t.id, status: t.status, makes: t.makes, missing: t.missing })),
     diagnostics: found.diagnostics.map((d) => ({
       at: d.at,
       code: d.code,
@@ -134,6 +144,19 @@ export function readSnapshot(text: string): Snapshot {
     strings(value.unwatched) &&
     each(value.diagnostics, (d) => typeof d.at === "string" && typeof d.code === "string");
   if (!shaped) throw new Error("it does not have the fields of a snapshot");
+  // A snapshot from before tasks has no `tasks` key.
+  if (!("tasks" in value)) value.tasks = [];
+  const tasksShaped = each(
+    value.tasks,
+    (t) =>
+      typeof t.id === "string" &&
+      (t.status === null || STATUSES.includes(t.status as Status)) &&
+      strings(t.makes) &&
+      strings(t.missing),
+  );
+  if (!tasksShaped) throw new Error("its tasks do not have the fields of a snapshot");
+  const ids = (value.tasks as SnapshotTask[]).map((t) => t.id);
+  if (new Set(ids).size !== ids.length) throw new Error("two of its tasks have the same id");
   return value as unknown as Snapshot;
 }
 
@@ -148,7 +171,7 @@ function statusLine(head: Snapshot): string {
   const errors = head.diagnostics.filter((d) => d.severity === "error").length;
   const counted: [number, string][] = [
     [errors, "errors"],
-    [head.diagnostics.length - errors, "warnings"],
+    [head.diagnostics.filter((d) => d.severity === "warning").length, "warnings"],
     [head.orphans.length, "orphan files"],
     [head.contested.length, "contested files"],
     [head.unwatched.length, "unwatched files"],
@@ -162,6 +185,40 @@ function statusLine(head: Snapshot): string {
 }
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+// A table of at most LIST_LIMIT data rows, then how many rows were left out.
+function table(head: string, rows: string[]): string[] {
+  const columns = head.split("|").length - 2;
+  const blocks = [[head, `|${"---|".repeat(columns)}`, ...rows.slice(0, LIST_LIMIT)].join("\n")];
+  if (rows.length > LIST_LIMIT) blocks.push(`And ${rows.length - LIST_LIMIT} more rows.`);
+  return blocks;
+}
+
+const taskRow = (t: SnapshotTask, change?: string) =>
+  `| ${plain(t.id)} | ${t.status ?? ""} | ${filesCell(t)} |${change === undefined ? "" : ` ${change} |`}`;
+
+// What changed in the tasks between base and head, as blocks.
+function taskChanges(head: Snapshot, base: Snapshot): string[] {
+  if (base.plan === "invalid" || head.plan === "invalid") {
+    return ["The plan has errors, so task changes are not shown."];
+  }
+  if (base.tasks.length === 0 && head.tasks.length === 0) return [];
+  const before = new Map(base.tasks.map((t) => [t.id, t]));
+  const after = new Set(head.tasks.map((t) => t.id));
+  const paths = (list: string[]) => [...new Set(list)].sort(byCodeUnit);
+  const counts = (t: SnapshotTask) => `${t.makes.length - t.missing.length} of ${t.makes.length}`;
+  const rows: string[] = [];
+  for (const t of head.tasks) {
+    const b = before.get(t.id);
+    if (b === undefined) {
+      rows.push(taskRow(t, "new"));
+    } else if (b.status !== t.status || !sameJson(paths(b.makes), paths(t.makes)) || !sameJson(paths(b.missing), paths(t.missing))) {
+      rows.push(`| ${plain(t.id)} | ${b.status ?? ""} → ${t.status ?? ""} | ${counts(b)} → ${counts(t)} | changed |`);
+    }
+  }
+  for (const b of base.tasks) if (!after.has(b.id)) rows.push(taskRow(b, "removed"));
+  return rows.length === 0 ? ["No task changed."] : table("| Task | Status | Files | Change |", rows);
+}
 
 // The blocks under "### Changes", and whether the rules differ between
 // base and head (a config or pattern change).
@@ -198,6 +255,7 @@ function changes(head: Snapshot, base: Snapshot): { blocks: string[]; rulesDiffe
   if (rulesDiffer) {
     blocks.push("The config or part patterns changed, so some changes come from new rules, not new code.");
   }
+  blocks.push(...taskChanges(head, base));
   return { blocks, rulesDiffer };
 }
 
@@ -242,6 +300,9 @@ export function reportText(head: Snapshot, base: Snapshot | null): string {
   }
   if (head.unwatched.length > 0) {
     blocks.push("### Unwatched files", list(head.unwatched.map(plain)));
+  }
+  if (head.tasks.length > 0) {
+    blocks.push("### Tasks", ...table("| Task | Status | Files |", head.tasks.map((t) => taskRow(t))));
   }
   if (base !== null) {
     const changed = changes(head, base);

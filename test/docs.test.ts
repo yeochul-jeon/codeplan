@@ -77,7 +77,7 @@ describe("examples in the docs", () => {
         const value = JSON.parse(m[1]!) as Record<string, unknown>;
         if (value && typeof value === "object" && "format" in value && "parts" in value) {
           plans++;
-          const errors = diagnosePlan(preparePlan(value), { repo: root, files: new Map(), owners: new Map() }).filter(
+          const errors = diagnosePlan(preparePlan(value), { repo: root, files: new Map(), owners: new Map(), isFile: () => false, unowned: () => false }).filter(
             (d) => d.severity === "error",
           );
           expect(errors, file).toEqual([]);
@@ -205,7 +205,7 @@ describe("examples in the docs", () => {
       encoding: "utf8",
       env: { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` },
     });
-    expect(out.stdout).toBe("## codeplan\n\ncheck: ok\n");
+    expect(out.stdout).toBe("## codeplan\n\ncheck: ok\n\n### Tasks\n\n| Task | Status | Files |\n|---|---|---|\n| refunds | doing | 1 of 1 |\n| basket-total | done | 1 of 1 |\n");
   });
 
   test("the snapshot fields in the CI doc are the fields snapshot prints", () => {
@@ -311,7 +311,7 @@ describe("the examples for use without CI", () => {
     // The first run has no base: the state alone.
     const first = sh(repo, script, repo, records);
     expect(first.status, first.stderr).toBe(0);
-    expect(report()).toBe("## codeplan\n\ncheck: ok\n\ncheck exit code: 0\n");
+    expect(report()).toBe("## codeplan\n\ncheck: ok\n\n### Tasks\n\n| Task | Status | Files |\n|---|---|---|\n| refunds | doing | 0 of 1 |\n| basket-total | done | 1 of 1 |\n\ncheck exit code: 0\n");
     expect(base().snapshot).toBe(1);
     expect(base().parts.find((p) => p.id === "pay")!.files).toBe(1);
 

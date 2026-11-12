@@ -7,7 +7,7 @@ import { isPathForm } from "./config.js";
 import { byCodeUnit } from "./measure.js";
 import type { PlanPart } from "./plan.js";
 
-export type Severity = "error" | "warning";
+export type Severity = "error" | "warning" | "info";
 
 export interface Diagnostic {
   code: string;
@@ -32,6 +32,9 @@ export const SEVERITY: Record<string, Severity> = {
   "gap-in-scenario": "warning",
   "unknown-reference": "warning",
   "no-plan": "warning",
+  "task-done-missing": "info",
+  "task-todo-has-files": "info",
+  "task-path-unowned": "info",
 };
 
 export function diagnostic(code: string, at: string, message: string): Diagnostic {
@@ -42,13 +45,18 @@ const ID_FORM = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 export const REFERENCE = /\{([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\}/g;
 
 export const KNOWN = {
-  plan: ["format", "name", "about", "parts", "externals", "scenarios", "note"],
+  plan: ["format", "name", "about", "parts", "externals", "scenarios", "tasks", "note"],
   part: ["id", "name", "zone", "about", "start", "paths", "planned", "uses", "note"],
   use: ["to", "why", "evidence", "note"],
   external: ["id", "name", "about", "note"],
   scenario: ["id", "name", "steps", "note"],
   step: ["at", "does", "note"],
+  task: ["id", "name", "status", "parts", "makes", "note"],
 };
+
+export const STATUSES = ["todo", "doing", "done"] as const;
+export type Status = (typeof STATUSES)[number];
+const isStatus = (v: unknown): v is Status => STATUSES.includes(v as Status);
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -65,6 +73,8 @@ export interface PreparedPlan {
   excluded: number;
   repeatedItems: Set<Obj>;
   targets: Set<string>;
+  // The parts a task can name: a proper id that is not a repeated one.
+  partIds: Set<string>;
   usesOf: Map<string, Set<string>>;
   skipInGaps: Set<string>;
   used: Set<string>;
@@ -86,6 +96,7 @@ export function preparePlan(raw: unknown): PreparedPlan {
     excluded: 0,
     repeatedItems: new Set(),
     targets: new Set(),
+    partIds: new Set(),
     usesOf: new Map(),
     skipInGaps: new Set(),
     used: new Set(),
@@ -97,7 +108,7 @@ export function preparePlan(raw: unknown): PreparedPlan {
   const scenarios = arrayOf(raw.scenarios);
 
   const seen = new Set<string>();
-  for (const item of [...parts, ...externals, ...scenarios]) {
+  for (const item of [...parts, ...externals, ...scenarios, ...arrayOf(raw.tasks)]) {
     if (!isObj(item) || !validId(item.id)) continue;
     if (seen.has(item.id)) prepared.repeatedItems.add(item);
     else seen.add(item.id);
@@ -105,6 +116,7 @@ export function preparePlan(raw: unknown): PreparedPlan {
   const kept = (item: unknown): item is Obj & { id: string } =>
     isObj(item) && validId(item.id) && !prepared.repeatedItems.has(item);
   for (const item of [...parts, ...externals]) if (kept(item)) prepared.targets.add(item.id);
+  for (const part of parts) if (kept(part)) prepared.partIds.add(part.id);
 
   for (const part of parts) {
     if (kept(part) && goodPaths(part.paths)) prepared.parts.push({ id: part.id, paths: part.paths, planned: part.planned === true });
@@ -147,8 +159,52 @@ export function preparePlan(raw: unknown): PreparedPlan {
   return prepared;
 }
 
+// The paths of a task's `makes` that have the path form, each once, in code
+// unit order. Null when `makes` is there and is not an array.
+function taskPaths(task: Obj): string[] | null {
+  if (!("makes" in task)) return [];
+  if (!Array.isArray(task.makes)) return null;
+  return [...new Set(task.makes.filter((p): p is string => typeof p === "string" && isPathForm(p)))].sort(byCodeUnit);
+}
+
+// A task as the page, the summary and the snapshot list it.
+export interface PlanTask {
+  id: string;
+  name: string;
+  // Null when the plan file's status is not one of the three.
+  status: Status | null;
+  // The parts its `parts` names, in the written order, each once.
+  parts: string[];
+  makes: string[];
+  // The paths of `makes` that are not a file in the repository.
+  missing: string[];
+}
+
+// The tasks with a proper id that is not a repeated one, in plan order.
+export function planTasks(prepared: PreparedPlan, isFile: (path: string) => boolean): PlanTask[] {
+  if (!isObj(prepared.raw)) return [];
+  const out: PlanTask[] = [];
+  for (const task of arrayOf(prepared.raw.tasks)) {
+    if (!isObj(task) || !validId(task.id) || prepared.repeatedItems.has(task)) continue;
+    const makes = taskPaths(task) ?? [];
+    out.push({
+      id: task.id,
+      name: typeof task.name === "string" ? task.name : "",
+      status: isStatus(task.status) ? task.status : null,
+      parts: [...new Set(arrayOf(task.parts).filter((p): p is string => validId(p) && prepared.partIds.has(p)))],
+      makes,
+      missing: makes.filter((p) => !isFile(p)),
+    });
+  }
+  return out;
+}
+
 export interface MeasuredFacts {
   repo: string;
+  // Whether a path is a file in the repository (see isPlainFile).
+  isFile: (path: string) => boolean;
+  // Whether a file made at a path would be watched and in no part.
+  unowned: (path: string) => boolean;
   // Measured file count of each measured part.
   files: Map<string, number>;
   // Every watched file and the part it is measured in (null: an orphan).
@@ -225,7 +281,78 @@ export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diag
   } else {
     arrayOf(raw.scenarios).forEach((scenario, i) => checkScenario(scenario, `scenarios[${i}]`));
   }
+  if ("tasks" in raw && !Array.isArray(raw.tasks)) {
+    emit("bad-shape", "tasks", "`tasks` must be an array");
+  } else {
+    arrayOf(raw.tasks).forEach((task, i) => checkTask(task, `tasks[${i}]`));
+  }
   rest(raw, "", "", KNOWN.plan);
+
+  function checkTask(task: unknown, at: string): void {
+    if (!isObj(task)) {
+      emit("bad-shape", at, "a task must be an object");
+      return;
+    }
+    const repeated = prepared.repeatedItems.has(task);
+    const who = id(task, at, "task", repeated);
+    string(task, "name", `${at}.name`, who, true);
+    const paths = taskPaths(task);
+    const there = (paths ?? []).filter((p) => facts.isFile(p)).length;
+
+    if (!("status" in task)) missing(`${at}.status`, who, "status");
+    else if (!isStatus(task.status)) {
+      emit("bad-shape", `${at}.status`, `${who}\`status\` must be todo, doing or done`);
+    } else if (!repeated && paths !== null) {
+      if (task.status === "done" && there < paths.length) {
+        emit(
+          "task-done-missing",
+          `${at}.status`,
+          `${who}the status is done and ${there} of ${paths.length} files in \`makes\` are in the repository`,
+        );
+      }
+      if (task.status === "todo" && there >= 1) {
+        emit(
+          "task-todo-has-files",
+          `${at}.status`,
+          `${who}the status is todo and ${there} of ${paths.length} files in \`makes\` are already in the repository`,
+        );
+      }
+    }
+
+    if ("parts" in task) {
+      if (!Array.isArray(task.parts)) {
+        emit("bad-shape", `${at}.parts`, `${who}\`parts\` must be an array of part ids`);
+      } else {
+        const seenPart = new Set<string>();
+        task.parts.forEach((part, j) => {
+          if (!validId(part)) emit("bad-shape", `${at}.parts[${j}]`, `${who}a part of a task must be an id`);
+          else if (!repeated && !seenPart.has(part)) {
+            seenPart.add(part);
+            if (!prepared.partIds.has(part)) emit("unknown-target", `${at}.parts[${j}]`, `${who}"${part}" is not a part`);
+          }
+        });
+      }
+    }
+
+    if (paths === null) {
+      emit("bad-shape", `${at}.makes`, `${who}\`makes\` must be an array of paths`);
+    } else {
+      const seenPath = new Set<string>();
+      arrayOf(task.makes).forEach((path, j) => {
+        if (typeof path !== "string" || !isPathForm(path)) {
+          emit("bad-shape", `${at}.makes[${j}]`, `${who}a path in \`makes\` must be a path inside the repository`);
+          return;
+        }
+        if (seenPath.has(path)) return;
+        seenPath.add(path);
+        // Without every part measured, a path cannot be said to be in no part.
+        if (!repeated && prepared.excluded === 0 && !facts.isFile(path) && facts.unowned(path)) {
+          emit("task-path-unowned", `${at}.makes[${j}]`, `${who}${path} would be a watched file that no part owns`);
+        }
+      });
+    }
+    rest(task, at, who, KNOWN.task);
+  }
 
   function checkPart(part: unknown, at: string): void {
     if (!isObj(part)) {

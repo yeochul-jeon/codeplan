@@ -12,6 +12,7 @@ export interface PageData {
   measure: { parts: { id: string; files: number; lines: number }[]; files: number; lines: number };
   orphans: string[];
   unwatched: number;
+  tasks: { id: string; marks: string[]; missing: string[] }[];
   layout: Layout;
 }
 
@@ -94,6 +95,14 @@ rect[data-active] { stroke: var(--cp-active); stroke-width: 3; }
 polyline[data-active] { stroke: var(--cp-active); stroke-width: 3; }
 button, select { background: var(--cp-control-fill); color: var(--cp-control-text); border: 1px solid var(--cp-control-line); border-radius: 4px; font: inherit; padding: 2px 8px; }
 button:disabled { opacity: 0.5; }
+#tasks { margin: 8px 0 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+#tasks:empty { display: none; }
+#tasks button { display: flex; align-items: center; gap: 8px; text-align: left; }
+#tasks details button { margin: 4px 0 0; }
+#tasks button[aria-pressed="true"] { border-color: var(--cp-active); box-shadow: inset 0 0 0 1px var(--cp-active); }
+#tasks p { margin: 0; color: var(--cp-text-dim); }
+.bar-line { fill: none; stroke: var(--cp-control-line); stroke-width: 1; }
+.bar-fill { fill: var(--cp-text-dim); stroke: none; }
 #walk { margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--cp-text); }
 #walk:empty { display: none; }
 #legend { margin: 8px 0 0; color: var(--cp-text-dim); }
@@ -104,7 +113,8 @@ button:disabled { opacity: 0.5; }
 const EARLY = `try { var t = localStorage.getItem("codeplan-theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}`;
 
 // The viewer: reads the data block and draws the layout as SVG, then the
-// scenario walk-through when the plan has scenarios. Plan text is always
+// task pane when the plan has tasks and the scenario walk-through when it
+// has scenarios. Plan text is always
 // set with textContent; label and title text is clipped to its box by a
 // nested svg element. Nothing moves on its own.
 const VIEWER = `
@@ -218,36 +228,7 @@ const VIEWER = `
   });
 
   var scenarios = plan.scenarios || [];
-  if (scenarios.length === 0) return;
-  var walk = document.getElementById("walk");
-  var select = html("select", walk);
-  select.setAttribute("aria-label", "Scenario");
-  var none = html("option", select);
-  none.value = "";
-  none.textContent = "(none)";
-  for (var s = 0; s < scenarios.length; s++) {
-    var option = html("option", select);
-    option.value = String(s);
-    option.textContent = str(scenarios[s].name) || scenarios[s].id;
-  }
-  var prev = html("button", walk);
-  prev.type = "button";
-  prev.textContent = "Previous";
-  prev.title = "Previous step (Left arrow key)";
-  var next = html("button", walk);
-  next.type = "button";
-  next.textContent = "Next";
-  next.title = "Next step (Right arrow key). Esc ends the walk-through.";
-  var stepText = html("span", walk);
-  stepText.setAttribute("data-role", "step");
-  prev.disabled = true;
-  next.disabled = true;
-
-  var current = null;
-  var REF = /\\{([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\\}/g;
-  function fill(text) {
-    return str(text).replace(REF, function (whole, id) { return id in names ? names[id] : whole; });
-  }
+  var tasks = data.tasks || [];
   function setHash(text) {
     history.replaceState(null, "", text ? "#" + text : location.pathname + location.search);
   }
@@ -255,6 +236,127 @@ const VIEWER = `
     for (var id in rects) rects[id].removeAttribute("data-active");
     for (var i = 0; i < edges.length; i++) edges[i].el.removeAttribute("data-active");
     for (var k = 0; k < connectors.length; k++) connectors[k].el.removeAttribute("data-active");
+  }
+
+  // The task pane: one button for each task, the done tasks in a closed
+  // group after the others. Choosing a task marks its parts; a scenario
+  // walk-through and a chosen task end each other.
+  var pane = document.getElementById("tasks");
+  var written = Object.create(null);
+  var planTasks = plan.tasks || [];
+  for (var w = 0; w < planTasks.length; w++) written[planTasks[w].id] = planTasks[w];
+  var taskRows = Object.create(null);
+  var chosen = null;
+  var current = null;
+  function addTask(task, parent, group) {
+    var from = written[task.id];
+    var button = html("button", parent);
+    button.type = "button";
+    button.setAttribute("data-task", task.id);
+    html("span", button).textContent = str(from.name) || task.id;
+    html("span", button).textContent = from.status;
+    var makes = from.makes || [];
+    var counted = Object.create(null);
+    var m = 0;
+    for (var i = 0; i < makes.length; i++) {
+      if (!counted[makes[i]]) m++;
+      counted[makes[i]] = true;
+    }
+    if (m > 0) {
+      var n = m - task.missing.length;
+      html("span", button).textContent = n + " of " + m + " files";
+      var bar = make("svg", { width: 66, height: 10, viewBox: "0 0 66 10", "class": "bar", "aria-hidden": "true" }, button);
+      make("rect", { x: 0.5, y: 0.5, width: 65, height: 9, "class": "bar-line" }, bar);
+      make("rect", { x: 1, y: 1, width: Math.round(64 * n / m), height: 8, "class": "bar-fill" }, bar);
+    }
+    taskRows[task.id] = { button: button, group: group, marks: task.marks, missing: null };
+    button.addEventListener("click", function () {
+      if (chosen === task.id) endTask();
+      else chooseTask(task.id);
+    });
+  }
+  if (tasks.length > 0) {
+    var doneCount = 0;
+    for (var a = 0; a < tasks.length; a++) {
+      if (written[tasks[a].id].status === "done") doneCount++;
+      else addTask(tasks[a], pane, null);
+    }
+    if (doneCount > 0) {
+      var doneGroup = html("details", pane);
+      html("summary", doneGroup).textContent = "Done (" + doneCount + ")";
+      for (var b = 0; b < tasks.length; b++) {
+        if (written[tasks[b].id].status === "done") addTask(tasks[b], doneGroup, doneGroup);
+      }
+    }
+    for (var g = 0; g < tasks.length; g++) {
+      if (tasks[g].missing.length === 0) continue;
+      var box = html("div", pane);
+      box.setAttribute("hidden", "");
+      html("p", box).textContent = "Files this task makes that are not in the repository:";
+      for (var h = 0; h < tasks[g].missing.length; h++) html("p", box).textContent = tasks[g].missing[h];
+      taskRows[tasks[g].id].missing = box;
+    }
+  }
+  // keep: the fragment is left as it is.
+  function endTask(keep) {
+    if (chosen === null) return;
+    var row = taskRows[chosen];
+    row.button.removeAttribute("aria-pressed");
+    if (row.missing) row.missing.setAttribute("hidden", "");
+    chosen = null;
+    clearActive();
+    if (!keep) setHash("");
+  }
+  function chooseTask(id, keep) {
+    if (current !== null) close(true);
+    endTask(true);
+    var row = taskRows[id];
+    chosen = id;
+    row.button.setAttribute("aria-pressed", "true");
+    if (row.group) row.group.setAttribute("open", "");
+    for (var i = 0; i < row.marks.length; i++) {
+      if (rects[row.marks[i]]) rects[row.marks[i]].setAttribute("data-active", "");
+    }
+    if (row.missing) row.missing.removeAttribute("hidden");
+    if (!keep) setHash("task=" + id);
+  }
+
+  var select, prev, next, stepText;
+  if (scenarios.length > 0) {
+    var walk = document.getElementById("walk");
+    select = html("select", walk);
+    select.setAttribute("aria-label", "Scenario");
+    var none = html("option", select);
+    none.value = "";
+    none.textContent = "(none)";
+    for (var s = 0; s < scenarios.length; s++) {
+      var option = html("option", select);
+      option.value = String(s);
+      option.textContent = str(scenarios[s].name) || scenarios[s].id;
+    }
+    prev = html("button", walk);
+    prev.type = "button";
+    prev.textContent = "Previous";
+    prev.title = "Previous step (Left arrow key)";
+    next = html("button", walk);
+    next.type = "button";
+    next.textContent = "Next";
+    next.title = "Next step (Right arrow key). Esc ends the walk-through.";
+    stepText = html("span", walk);
+    stepText.setAttribute("data-role", "step");
+    prev.disabled = true;
+    next.disabled = true;
+    select.addEventListener("change", function () {
+      if (select.value === "") close();
+      else open(Number(select.value), 0);
+    });
+    prev.addEventListener("click", function () { move(-1); });
+    next.addEventListener("click", function () { move(1); });
+  }
+
+  var REF = /\\{([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\\}/g;
+  function fill(text) {
+    return str(text).replace(REF, function (whole, id) { return id in names ? names[id] : whole; });
   }
   // keep: opened from the fragment, which is then left as it is.
   function show(keep) {
@@ -292,19 +394,21 @@ const VIEWER = `
     if (!keep) setHash("scenario=" + scenario.id + "&step=" + (k + 1));
   }
   function open(index, step, fromHash) {
+    endTask(true);
     current = { index: index, step: step };
     select.value = String(index);
     show(fromHash);
     if (!next.disabled) next.focus();
   }
-  function close() {
+  // keep: the fragment is left as it is.
+  function close(keep) {
     current = null;
     clearActive();
     select.value = "";
     stepText.textContent = "";
     prev.disabled = true;
     next.disabled = true;
-    setHash("");
+    if (!keep) setHash("");
   }
   function move(by) {
     if (current === null) return;
@@ -314,14 +418,12 @@ const VIEWER = `
     current.step = k;
     show();
   }
-  select.addEventListener("change", function () {
-    if (select.value === "") close();
-    else open(Number(select.value), 0);
-  });
-  prev.addEventListener("click", function () { move(-1); });
-  next.addEventListener("click", function () { move(1); });
   document.addEventListener("keydown", function (event) {
-    if (current === null || document.activeElement === select) return;
+    if (current === null) {
+      if (chosen !== null && event.key === "Escape" && !event.altKey && !event.ctrlKey && !event.metaKey) endTask();
+      return;
+    }
+    if (document.activeElement === select) return;
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.key === "ArrowLeft") { event.preventDefault(); move(-1); }
     else if (event.key === "ArrowRight") { event.preventDefault(); move(1); }
@@ -329,12 +431,16 @@ const VIEWER = `
   });
 
   // Opens what the fragment names: on load, and when the fragment changes
-  // later (replaceState above does not fire hashchange). An unknown id is
-  // ignored; no fragment at all ends the walk-through.
+  // later (replaceState above does not fire hashchange). A scenario key is
+  // read first and the task key is then not looked at. An unknown id is
+  // ignored; no fragment at all ends the walk-through and the chosen task.
   function fromHash(onLoad) {
     var text = location.hash.replace(/^#/, "");
     if (text === "") {
-      if (!onLoad && current !== null) close();
+      if (!onLoad) {
+        if (current !== null) close();
+        endTask();
+      }
       return;
     }
     var wanted = Object.create(null);
@@ -345,13 +451,17 @@ const VIEWER = `
         try { wanted[decodeURIComponent(pieces[q].slice(0, eq))] = decodeURIComponent(pieces[q].slice(eq + 1)); } catch (err) {}
       }
     }
-    for (var w = 0; w < scenarios.length; w++) {
-      if (scenarios[w].id !== wanted.scenario) continue;
-      var n = (scenarios[w].steps || []).length;
-      var k = /^[0-9]+$/.test(wanted.step || "") ? parseInt(wanted.step, 10) : 0;
-      open(w, k >= 1 && k <= n ? k - 1 : 0, true);
+    if ("scenario" in wanted) {
+      for (var w = 0; w < scenarios.length; w++) {
+        if (scenarios[w].id !== wanted.scenario) continue;
+        var n = (scenarios[w].steps || []).length;
+        var k = /^[0-9]+$/.test(wanted.step || "") ? parseInt(wanted.step, 10) : 0;
+        open(w, k >= 1 && k <= n ? k - 1 : 0, true);
+        return;
+      }
       return;
     }
+    if ("task" in wanted && taskRows[wanted.task]) chooseTask(wanted.task, true);
   }
   window.addEventListener("hashchange", function () { fromHash(false); });
   fromHash(true);
@@ -365,7 +475,7 @@ export const FRAME = {
     `<title>codeplan</title>\n<style>${STYLE}</style>\n<script>${EARLY}</script>\n</head>\n<body>\n<main>\n` +
     `<div id="tools"></div>\n` +
     `<svg id="plane" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="parts of the repository"></svg>\n` +
-    `<div id="walk"></div>\n<div id="legend"></div>\n</main>\n`,
+    `<div id="tasks"></div>\n<div id="walk"></div>\n<div id="legend"></div>\n</main>\n`,
   tail: `\n<script>${VIEWER}</script>\n</body>\n</html>\n`,
 };
 

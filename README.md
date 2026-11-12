@@ -3,15 +3,17 @@
 English · [한국어](README.ko.md)
 
 codeplan keeps a plan of a repository beside its code and writes a page that
-shows the parts, which parts use which, and scenarios through them. Once the
-plan file is out of date, the `check` command exits non-zero. `check` can
-run in CI, where it stops a pull request, or without CI, from a pre-push
-hook or on a schedule.
+shows the parts, which parts use which, and scenarios through them. The page
+also lists the tasks written in the plan, each with its status and how many
+of the files it is to make are there. Once the plan file is out of date, the
+`check` command exits non-zero. `check` can run in CI, where it stops a pull
+request, or without CI, from a pre-push hook or on a schedule.
 
 The plan has two kinds of content. Written by people: the repository split
 into parts, with a name and a description for each, which parts use which,
-the outside systems they use (externals), and scenarios that follow one
-request through the parts. Counted by the tool: the files and lines each
+the outside systems they use (externals), scenarios that follow one
+request through the parts, and tasks: units of work with a status and the
+files each is to make. Counted by the tool: the files and lines each
 part owns, from glob patterns in the plan file. From both, codeplan writes a
 single HTML page that draws the parts and lets a reader step through a
 scenario.

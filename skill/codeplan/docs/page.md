@@ -28,8 +28,35 @@ and `check` refuse to touch it.
   unwatched files when there are any.
 
 The layout comes from the parts' ids, names, zones, counts and order alone,
-so changing `uses`, externals or scenarios does not move a part. Text from
+so changing `uses`, externals, scenarios or tasks does not move a part. Text from
 the plan file is always shown as text, never as HTML.
+
+## Tasks
+
+When the plan has tasks, the page lists them under the picture, above the
+scenario controls. Tasks that are `todo` or `doing` come first, in plan file
+order. The `done` tasks follow in one group that starts closed, titled
+`Done (<k>)` with their number.
+
+A task is one row, read from the left: its name (or the id when the name is
+empty), its status as written (`todo`, `doing` or `done`), and, when the
+task has paths in `makes`, `<n> of <m> files` with a bar. The bar is filled
+in proportion to n out of m: the share of the task's files that are in the
+repository. A status has no colour of its own; the word says it.
+
+A row is a button. Choosing it highlights the task's parts: the parts named
+in its `parts`, and the parts that own a file of its `makes`. Other parts
+are not dimmed, and no line or external is highlighted. The files of `makes`
+that are not in the repository are listed under the rows. When the task is
+in the `done` group, the group opens. Choosing the same row again, or Esc,
+ends it.
+
+A chosen task and a scenario walk-through end each other: choosing a task
+sets the select box back to `(none)`, and choosing a scenario ends the task.
+
+The address carries the task: `#task=<id>`. When the fragment has a
+`scenario` key, the scenario opens and `task` is not read. An unknown task
+id is ignored.
 
 ## Walking through a scenario
 
@@ -73,7 +100,7 @@ Every colour on the page is one of these tokens:
 |---|---|
 | `--cp-bg` | page and picture background |
 | `--cp-text` | labels and the step text |
-| `--cp-text-dim` | the lines below the picture |
+| `--cp-text-dim` | the lines below the picture, the filled length of a task's bar, the list of a task's files that are not there |
 | `--cp-part-fill` | part rectangles |
 | `--cp-part-line` | part rectangle borders |
 | `--cp-ext-fill` | external rectangles |
@@ -83,9 +110,9 @@ Every colour on the page is one of these tokens:
 | `--cp-zone-title` | zone names |
 | `--cp-edge` | lines for uses and their arrows |
 | `--cp-connector` | connectors |
-| `--cp-active` | highlighted borders and lines |
+| `--cp-active` | highlighted borders and lines, the border of a chosen task |
 | `--cp-control-fill` | buttons and the select box |
-| `--cp-control-line` | their borders |
+| `--cp-control-line` | their borders, the box of a task's bar |
 | `--cp-control-text` | their text |
 
 In both themes, text has a contrast of at least 4.5:1 with its background

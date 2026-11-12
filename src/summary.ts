@@ -2,7 +2,7 @@
 // Both are made from a plan that has no error finding, so every field has
 // its type and every use and step names a part or external that exists.
 import { byCodeUnit, type Measurement } from "./measure.js";
-import { REFERENCE } from "./validate.js";
+import { REFERENCE, type PlanTask } from "./validate.js";
 
 interface Use {
   to: string;
@@ -30,6 +30,10 @@ interface Plan {
 
 const oneLine = (text: string) => text.replace(/\r\n|\n|\r/g, " ");
 const shown = (item: Named) => (item.name === "" ? item.id : item.name);
+
+// "<n> of <m>" for a task's files; nothing when it makes none.
+export const filesCell = (task: { makes: string[]; missing: string[] }) =>
+  task.makes.length === 0 ? "" : `${task.makes.length - task.missing.length} of ${task.makes.length}`;
 
 // Text that Markdown must show as written.
 export const plain = (text: string) => oneLine(text).replace(/[\\`*_[\]<>|~&#]/g, "\\$&");
@@ -80,7 +84,7 @@ export function mermaidText(value: unknown): string {
   return `${mermaidLines(value).join("\n")}\n`;
 }
 
-export function summaryText(value: unknown, m: Measurement): string {
+export function summaryText(value: unknown, m: Measurement, tasks: PlanTask[]): string {
   const plan = value as Plan;
   const externals = plan.externals ?? [];
   const scenarios = plan.scenarios ?? [];
@@ -160,6 +164,25 @@ export function summaryText(value: unknown, m: Measurement): string {
         );
       }
     }
+  }
+
+  if (tasks.length > 0) {
+    blocks.push("## Tasks");
+    blocks.push(
+      [
+        "| Task | Id | Status | Files | Parts |",
+        "|---|---|---|---|---|",
+        ...tasks.map((t) =>
+          row([
+            plain(shown(t)),
+            t.id,
+            t.status!,
+            filesCell(t),
+            t.parts.map((id) => plain(names.get(id)!)).join(", "),
+          ]),
+        ),
+      ].join("\n"),
+    );
   }
 
   blocks.push("## Diagram");

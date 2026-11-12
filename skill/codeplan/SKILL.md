@@ -8,7 +8,7 @@ license: MIT
 
 codeplan keeps a plan of a repository next to its code. The plan file
 (`docs/codeplan/plan.json`) holds what people write: parts with names and
-descriptions, what each part uses, externals, and scenarios. The tool counts
+descriptions, what each part uses, externals, scenarios, and tasks. The tool counts
 the files and lines each part owns from its `paths`, writes a page that draws
 it all (`docs/codeplan/codeplan.html`), and `check` fails when the plan file,
 the code and the page no longer agree.
@@ -122,6 +122,12 @@ each:
   `paths` the code will have; `check` then does not report `empty-part`,
   and the page draws it with a dashed border. When the first file arrives,
   `check` warns with `planned-has-files`: remove `planned` then.
+- `tasks`: units of work. Each has an `id`, a `name`, a `status` (`todo`,
+  `doing` or `done`), and may have `parts` (the ids of the parts it works
+  on) and `makes` (the files it is to make, as paths from the repository
+  root, not globs). The page shows for each task how many of the files in
+  `makes` are there. A task that only changes files that are already there
+  has no `makes`, only its `status`.
 - `note`: a note for people anywhere; the tool keeps it and does not read it.
 
 Write a use only when the code shows it: an import, a call, a client, a
@@ -158,7 +164,11 @@ Ask the person before you:
   code;
 - move files between parts in a way that changes what a part means;
 - add files to `skip` (that hides them from the plan);
-- change `languages`, `roots` or `watch` away from what `draft` proposed.
+- change `languages`, `roots` or `watch` away from what `draft` proposed;
+- change the `status` of a task. The status is the person's to set. When
+  the work of a task looks finished to you, say so and ask before you write
+  `done`. After a status changes, run `update`: the page is out of date
+  until then.
 
 ## Writing the page and checking
 
@@ -194,6 +204,10 @@ Read the lists on standard error; each comes with a `fix:` line.
   whether the part is planned, and set `planned` to `true` when it is.
 - `planned-has-files`: a planned part now has files. Remove `planned`; if
   the files are not that part's code, correct its `paths`.
+- Lines marked `[info]` (`task-done-missing`, `task-todo-has-files`,
+  `task-path-unowned`) tell about a task and do not fail `check`. Report
+  them to the person; correct a wrong path in `makes` yourself, and leave
+  the `status` to them.
 
 A config error (unknown key, wrong type, a path with a backslash, `..`, `./`
 or a trailing `/`) stops every command with exit code 2 and one line naming
@@ -210,7 +224,11 @@ To follow a scenario, choose it in the select box under the picture, then
 use the buttons or the Left and Right arrow keys; Esc closes it. The address
 fragment `#scenario=<id>&step=<k>` opens a step directly, which is useful
 for links. The theme button switches between `auto`, `light` and `dark`.
-See [page](docs/page.md).
+
+Tasks are listed under the picture, each with its status and, when it has
+`makes`, how many of those files are there. Choosing a task highlights its
+parts and lists the files that are not there yet; `#task=<id>` opens one
+directly. See [page](docs/page.md).
 
 The page is generated. Never edit it by hand; change the plan file and run
 `update`.

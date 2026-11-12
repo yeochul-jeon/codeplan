@@ -56,6 +56,13 @@ Uses:
 2. **Payments**: Charges the card.
 3. **Ledger**: Keeps the charge.
 
+## Tasks
+
+| Task | Id | Status | Files | Parts |
+|---|---|---|---|---|
+| Refunds | refunds | doing | 0 of 1 | Payments |
+| Basket total | basket-total | done | 1 of 1 | Cart |
+
 ## Diagram
 
 ```mermaid
@@ -77,9 +84,13 @@ flowchart LR
 - A planned part has `planned` in the Files and Lines columns.
 - When there are orphans or unwatched files, a line after the parts table
   gives the number of each.
+- The Tasks table has every task in plan file order, the `done` ones
+  included. Files is `<n> of <m>`: how many of the paths in the task's
+  `makes` are files in the repository; it is empty for a task with no
+  `makes`. Parts has the names of the parts in the task's `parts`.
 - A section with nothing in it is left out: no `about` paragraph (an
   `about` of only spaces, tabs or line breaks counts as nothing), no
-  `Uses:` list, no Externals or Scenarios section.
+  `Uses:` list, no Externals, Scenarios or Tasks section.
 - Text from the plan file is written so that Markdown shows it as it is:
   line breaks become spaces, characters that Markdown reads as markup get
   a backslash, and an `about` paragraph loses the spaces and tabs at its
@@ -110,7 +121,7 @@ node docs/codeplan/codeplan.mjs summary --mermaid > plan.mmd
 ## Findings and exit codes
 
 `summary` checks the plan file as `check` does and prints the findings on
-standard error, each with its `fix:` line.
+standard error, info findings included, each with its `fix:` line.
 
 | Exit code | When |
 |---|---|
