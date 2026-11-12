@@ -14,6 +14,7 @@ const skill = join(root, "skill/codeplan");
 const docsDir = join(skill, "docs");
 const DOCS = [
   join(root, "README.md"),
+  join(root, "README.ko.md"),
   join(skill, "SKILL.md"),
   ...readdirSync(docsDir)
     .filter((f) => f.endsWith(".md"))
@@ -24,11 +25,8 @@ const doc = (name: string) => read(join(docsDir, name));
 
 // Text outside code blocks and inline code. Blocks with a fence of four
 // backticks (they hold a three-backtick block) go first.
-const prose = (text: string) =>
-  text
-    .replace(/````[\s\S]*?````/g, "")
-    .replace(/```[\s\S]*?```/g, "")
-    .replace(/`[^`]*`/g, "");
+const outsideBlocks = (text: string) => text.replace(/````[\s\S]*?````/g, "").replace(/```[\s\S]*?```/g, "");
+const prose = (text: string) => outsideBlocks(text).replace(/`[^`]*`/g, "");
 
 // The backticked names in the first column of the tables under a heading.
 function firstColumn(text: string, heading: string): string[] {
@@ -291,5 +289,35 @@ describe("the text of the docs", () => {
       );
       expect(text, file).not.toMatch(/^#+ (Gotchas|What not to do|Before you start|Scale|Voice|Step \d+)/m);
     }
+  });
+});
+
+describe("the Korean README", () => {
+  const english = read(join(root, "README.md"));
+  const korean = read(join(root, "README.ko.md"));
+  // Sorted, with every repeat kept.
+  const bag = (items: Iterable<string>) => [...items].sort();
+
+  test("the code blocks are the same, in the same order", () => {
+    // A four-backtick block first, as in outsideBlocks.
+    const blocks = (text: string) => [...text.matchAll(/````[\s\S]*?````|```[\s\S]*?```/g)].map((m) => m[0]);
+    expect(blocks(english).length).toBeGreaterThan(0);
+    expect(blocks(korean)).toEqual(blocks(english));
+  });
+
+  test("the inline code outside the blocks is the same, with the same counts", () => {
+    const inline = (text: string) => bag([...outsideBlocks(text).matchAll(/`[^`]*`/g)].map((m) => m[0]));
+    expect(inline(korean)).toEqual(inline(english));
+  });
+
+  test("the headings have the same levels in the same order", () => {
+    const levels = (text: string) => [...outsideBlocks(text).matchAll(/^#+/gm)].map((m) => m[0].length);
+    expect(levels(korean)).toEqual(levels(english));
+  });
+
+  test("the link targets are the same, apart from the two in the language lines", () => {
+    const targets = (text: string, languageLine: string) =>
+      bag([...text.replace(languageLine, "").matchAll(/\]\(([^)]+)\)/g)].map((m) => m[1]!));
+    expect(targets(korean, "[English](README.md) · 한국어")).toEqual(targets(english, "English · [한국어](README.ko.md)"));
   });
 });

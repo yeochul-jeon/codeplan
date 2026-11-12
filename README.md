@@ -1,5 +1,7 @@
 # codeplan
 
+English · [한국어](README.ko.md)
+
 codeplan keeps a plan of a repository beside its code. Once the plan file is
 out of date, its `check` command exits non-zero, and the CI run stops there.
 
