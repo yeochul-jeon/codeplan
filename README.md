@@ -144,8 +144,10 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
 
 ## Known limits
 
-- The lines between parts are the uses people wrote in the plan file.
-  `check` does not look for uses in the code that the plan leaves out.
+- The lines between parts are the uses people wrote in the plan file. In
+  `.java` files, when a file of one part imports a file of another part and
+  the plan has no use of it, `check` says so in an info line. It does not
+  read the imports of other languages.
 - A scenario is stepped through by hand; there is no automatic playback.
 - The theme choice is kept per browser, not in the page.
 - A file whose name contains a backslash cannot be written as a `start`.

@@ -95,7 +95,7 @@ remove `planned` in the change that adds the code. The tool never changes
 |---|---|---|
 | `to` | yes | The id of a part or an external. |
 | `why` | no | What it is used for. |
-| `evidence` | no | An array of strings, usually `file:line` places in the code. |
+| `evidence` | no | An array of strings, each written as `file:line`: a path from the repository root, a colon and a line number of 1 or more. `check` looks whether the file is there and has that many lines, and says so in an info line when it does not (see [diagnostics](diagnostics.md)). It does not read the line. |
 | `note` | no | A note for people. |
 
 ### External

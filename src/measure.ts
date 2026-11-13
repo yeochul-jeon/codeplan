@@ -3,6 +3,7 @@ import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LANGUAGES, isUnder, type Config } from "./config.js";
 import { GlobSet, compileGlob, strength } from "./glob.js";
+import { javaFile, type JavaFile } from "./imports.js";
 import { lineTotal } from "./lines.js";
 import type { PlanPart } from "./plan.js";
 
@@ -28,6 +29,10 @@ export interface Measurement {
   // For a file measured in a part: that part's pattern that won it (the
   // first in its paths among equally strong ones).
   wonBy: Map<string, string>;
+  // The line count of each file measured in a part.
+  lines: Map<string, number>;
+  // What each .java file measured in a part says of its package and imports.
+  java: Map<string, JavaFile>;
 }
 
 export const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -204,6 +209,8 @@ export function measure(repo: string, config: Config, plan: PlanPart[]): Measure
   const unwatched: string[] = [];
   const owners = new Map<string, string | null>();
   const wonBy = new Map<string, string>();
+  const lines = new Map<string, number>();
+  const java = new Map<string, JavaFile>();
   let watchedFiles = 0;
 
   for (const path of files) {
@@ -234,7 +241,11 @@ export function measure(repo: string, config: Config, plan: PlanPart[]): Measure
     wonBy.set(path, matched.get(ids[0]!)!);
     const total = totals.get(ids[0]!)!;
     total.files++;
-    total.lines += lineTotal(readFileSync(join(repo, path)));
+    // A file is read here and nowhere else.
+    const bytes = readFileSync(join(repo, path));
+    lines.set(path, lineTotal(bytes));
+    total.lines += lines.get(path)!;
+    if (path.endsWith(".java")) java.set(path, javaFile(bytes.toString("utf8")));
   }
 
   return {
@@ -245,5 +256,7 @@ export function measure(repo: string, config: Config, plan: PlanPart[]): Measure
     watchedFiles,
     owners,
     wonBy,
+    lines,
+    java,
   };
 }

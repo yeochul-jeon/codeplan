@@ -77,7 +77,7 @@ describe("examples in the docs", () => {
         const value = JSON.parse(m[1]!) as Record<string, unknown>;
         if (value && typeof value === "object" && "format" in value && "parts" in value) {
           plans++;
-          const errors = diagnosePlan(preparePlan(value), { repo: root, files: new Map(), owners: new Map(), isFile: () => false, unowned: () => false }).filter(
+          const errors = diagnosePlan(preparePlan(value), { repo: root, files: new Map(), owners: new Map(), lineCount: () => 1, imports: null, isFile: () => false, unowned: () => false }).filter(
             (d) => d.severity === "error",
           );
           expect(errors, file).toEqual([]);

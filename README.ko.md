@@ -146,8 +146,9 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
 
 ## 알려진 제한
 
-- part 사이의 선은 사람이 계획 파일에 쓴 uses입니다. `check`는 계획에
-  빠져 있는 uses를 코드에서 찾지 않습니다.
+- part 사이의 선은 사람이 계획 파일에 쓴 uses입니다. `.java` 파일에서 한
+  part의 파일이 다른 part의 파일을 import하는데 계획에 use가 없으면
+  `check`가 info 줄로 알립니다. 다른 언어의 import는 읽지 않습니다.
 - scenario는 손으로 한 step씩 넘깁니다. 자동 재생은 없습니다.
 - 테마 선택은 page가 아니라 브라우저마다 저장됩니다.
 - 이름에 역슬래시가 든 파일은 `start`로 쓸 수 없습니다.

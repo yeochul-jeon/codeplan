@@ -134,7 +134,9 @@ each:
 Write a use only when the code shows it: an import, a call, a client, a
 query. Put the place in `evidence`. A relation you cannot find in the code
 does not go into the plan; ask the person instead. The plan does not have to
-list every use for `check` to pass: missing uses are not an error. Two
+list every use for `check` to pass. In `.java` files, when a file of one part
+imports a file of another part and the plan has no use of it, `check` says
+so in an info line, and an info line alone does not make `check` fail. Two
 steps in a row of a scenario at different places do want a use between
 them, though; without one `check` warns with `gap-in-scenario`, and writing
 the use (when the code shows it) removes the warning.
@@ -144,10 +146,10 @@ the same rule: a use from each part is allowed, not needed. Write the ones a
 scenario passes through, and say in that part's `about` that the others use
 it too.
 
-An `evidence` entry points at the line that shows the use, such as the
-import line or the call line, as `file:line`. `check` wants `evidence` to be
-a list of strings and nothing more: it does not open the file or look at
-the line.
+An `evidence` entry is the line that shows the use, such as the import line
+or the call line, as `file:line`. `check` looks whether the file is there
+and has that many lines, and says so in an info line when it does not. It
+does not read what is on the line.
 
 ## What to decide yourself and what to ask
 

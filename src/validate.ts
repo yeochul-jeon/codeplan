@@ -4,6 +4,7 @@
 import { lstatSync } from "node:fs";
 import { join } from "node:path";
 import { isPathForm } from "./config.js";
+import type { ImportFacts } from "./imports.js";
 import { byCodeUnit } from "./measure.js";
 import type { PlanPart } from "./plan.js";
 
@@ -35,6 +36,11 @@ export const SEVERITY: Record<string, Severity> = {
   "task-done-missing": "info",
   "task-todo-has-files": "info",
   "task-path-unowned": "info",
+  "evidence-not-read": "info",
+  "evidence-no-file": "info",
+  "evidence-no-line": "info",
+  "import-without-use": "info",
+  "use-without-import": "info",
 };
 
 export function diagnostic(code: string, at: string, message: string): Diagnostic {
@@ -209,6 +215,27 @@ export interface MeasuredFacts {
   files: Map<string, number>;
   // Every watched file and the part it is measured in (null: an orphan).
   owners: Map<string, string | null>;
+  // The line count of the file at a path; null when no file can be read
+  // there.
+  lineCount: (path: string) => number | null;
+  // What the .java files import; null when imports are not judged (no java
+  // rules, a part that is not measured, or a contested file).
+  imports: ImportFacts | null;
+}
+
+// What is to say of an evidence string: the first of the three that holds.
+function evidenceFinding(evidence: string, lineCount: (path: string) => number | null): [code: string, sentence: string] | null {
+  const written = JSON.stringify(evidence);
+  const colon = evidence.lastIndexOf(":");
+  const path = evidence.slice(0, Math.max(colon, 0));
+  const line = evidence.slice(colon + 1);
+  if (colon < 0 || !/^[1-9][0-9]*$/.test(line) || !isPathForm(path)) {
+    return ["evidence-not-read", `evidence ${written} is not written as file:line`];
+  }
+  const count = lineCount(path);
+  if (count === null) return ["evidence-no-file", `the file of evidence ${written} is not a file in the repository`];
+  if (count < Number(line)) return ["evidence-no-line", `the file of evidence ${written} does not have that line`];
+  return null;
 }
 
 export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diagnostic[] {
@@ -220,6 +247,9 @@ export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diag
     return out;
   }
   const measured = new Set(prepared.parts.map((p) => p.id));
+  const plannedIds = new Set(prepared.parts.filter((p) => p.planned).map((p) => p.id));
+  const imports = facts.imports;
+  const sharePackage = (a: string, b: string) => [...imports!.packages.get(a)!].some((p) => imports!.packages.get(b)!.has(p));
 
   // Field helpers. `who` names the enclosing item in messages.
   const missing = (at: string, who: string, key: string) =>
@@ -417,6 +447,21 @@ export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diag
       );
     }
 
+    // A use that the imports show and the plan does not have. Its place is
+    // `uses` also when the part has no such key.
+    const uses = "uses" in part ? part.uses : [];
+    if (imports !== null && partId !== null && !repeated && !planned && Array.isArray(uses)) {
+      const named = new Set(uses.map((use) => (isObj(use) ? use.to : undefined)));
+      for (const other of prepared.parts) {
+        const example = imports.pairs.get(partId)?.get(other.id);
+        if (example === undefined || other.planned || named.has(other.id)) continue;
+        emit(
+          "import-without-use",
+          `${at}.uses`,
+          `${who}files of this part import files of part "${other.id}" and the plan has no use of it, for example ${example}`,
+        );
+      }
+    }
     if ("uses" in part) {
       if (!Array.isArray(part.uses)) {
         emit("bad-shape", `${at}.uses`, `${who}\`uses\` must be an array`);
@@ -439,6 +484,23 @@ export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diag
             if (!prepared.targets.has(to)) {
               emit("unknown-target", `${uat}.to`, `${who}"${to}" is not a part or external`);
             }
+            // Both parts have .java files, in no package together, and no
+            // import line of this part is or can be a file of the other.
+            if (
+              imports !== null &&
+              partId !== null &&
+              to !== partId &&
+              prepared.partIds.has(to) &&
+              !planned &&
+              !plannedIds.has(to) &&
+              imports.packages.has(partId) &&
+              imports.packages.has(to) &&
+              !sharePackage(partId, to) &&
+              !imports.pairs.get(partId)?.has(to) &&
+              !imports.possible.get(partId)?.has(to)
+            ) {
+              emit("use-without-import", `${uat}.to`, `${who}no file of this part imports a file of part "${to}"`);
+            }
           }
           text(use, "why", `${uat}.why`, who, false, !repeated);
           if ("evidence" in use) {
@@ -448,6 +510,9 @@ export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diag
               use.evidence.forEach((e, j) => {
                 if (typeof e !== "string") {
                   emit("bad-shape", `${uat}.evidence[${j}]`, `${who}evidence must be a string`);
+                } else if (!repeated) {
+                  const found = evidenceFinding(e, facts.lineCount);
+                  if (found !== null) emit(found[0], `${uat}.evidence[${j}]`, `${who}${found[1]}`);
                 }
               });
             }

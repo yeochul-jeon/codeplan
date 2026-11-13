@@ -43,6 +43,51 @@ last line of `check`, and with nothing else to report that line is
 | `task-done-missing` | info | `tasks[i].status` | The task is `done` and one or more files in its `makes` are not in the repository. The message gives the count, such as `1 of 2`. | Make the files, take them out of `makes`, or write the status the task has now. |
 | `task-todo-has-files` | info | `tasks[i].status` | The task is `todo` and one or more files in its `makes` are already in the repository. | Nothing has to change. If the files are not what the task makes, correct `makes`. |
 | `task-path-unowned` | info | `tasks[i].makes[j]`, where the path is first written | A path in `makes` is not a file yet, and the file would be in the watch set and match no part's `paths`: once made it would be an orphan. Not reported while a part is left out of counting. | Add a pattern for the path to a part's `paths`, or correct the path. |
+| `evidence-not-read` | info | `uses[i].evidence[j]` | The string is not written as `file:line`: a path from the repository root with `/` between its parts, a colon, and a line number of 1 or more. | Write it as `file:line`. |
+| `evidence-no-file` | info | `uses[i].evidence[j]` | No file can be read at that path (nothing there, a directory, a symbolic link). The file does not have to be in the watch set. | Write the path of a file that is in the repository, or remove the evidence. |
+| `evidence-no-line` | info | `uses[i].evidence[j]` | The file has fewer lines than the line number. | Write the line that shows the use as the file is now, or remove the evidence. |
+| `import-without-use` | info | `parts[i].uses` | A `.java` file of this part imports a `.java` file of another part, and this part has no use of that part. One line for each such part; the message names one file as an example. | Add a use of that part. Nothing has to change if the plan is not to show that use. |
+| `use-without-import` | info | `uses[i].to` | The use names a part, both parts have `.java` files, and no import line of this part is a file of that part. | Nothing has to change if the part uses the other without an import line. Remove the use if it is no longer there. |
+
+## Evidence and imports
+
+The five codes above are info lines: they do not change an exit code.
+
+- For each `evidence` string, `check` reports the first of the three
+  evidence codes that holds, and nothing when none does.
+- The imports are read in `.java` files that one part owns. An import line
+  is one line that begins with `import`, with one import on it. The file
+  of an imported name is the `.java` file whose package line and file name
+  give that name; for a nested type or a static member, the name without
+  its last parts.
+- The two import codes are reported only when the config has the `java`
+  language, every part is counted and no file is contested. A planned part
+  has neither.
+- `use-without-import` is not reported when the two parts have files in one
+  package, or when this part has a `.*` import of a package that has files
+  of the other part.
+
+What `check` does not read or look at here:
+
+- It does not read the line of an evidence: an evidence whose line has
+  moved to other code is not found.
+- It does not read the imports of `.kt`, JavaScript and TypeScript files.
+- It does not look for a use inside one package, where no import is
+  written.
+- It does not look for a type written with its full name and no import, or
+  for a use that finds its target by name.
+- It does not look at which types of a `.*` import are used.
+- It does not read two or more imports on one line, an import written over
+  several lines, or `import module`.
+- It does not look for a type declared under a name other than its file
+  name.
+- It does not look whether a line that begins with `package` or `import` is
+  inside a comment or a string: such a line is read as an import.
+- It does not look for the file of a type whose full name two or more
+  files have.
+- It does not look whether the file of an evidence uses the target of the
+  use: only whether the file is there and how many lines it has.
+- It does not read `about` texts.
 
 ## Order
 

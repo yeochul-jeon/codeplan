@@ -29,6 +29,7 @@ standard error.
 | Option | Command | What it does |
 |---|---|---|
 | `--repo <dir>` | all but `history` | The repository to read. |
+| `--no-page` | `check` | `check` does not compare the page. |
 | `--max-parts <n>` | `draft` | The most parts to propose (default 16). Decimal digits only, 1 or more. |
 | `--language <name>` | `draft` | `js` or `java`. Repeat for both. |
 | `--root <dir>` | `draft` | A source root to use instead of the language rules. Repeat for more. |
@@ -82,6 +83,15 @@ order the summary is `check: ok`. Otherwise it lists, on standard error,
 orphans, contested files, unwatched files, the page if it is out of date,
 and the plan file's findings (see [diagnostics](diagnostics.md)), each with
 a line saying how to fix it.
+
+With `--no-page`, `check` does not compare the page and does not read the
+page place: a page that is out of date or not there, or something else at
+the page place, changes nothing. The config is checked as before. The line
+before the summary line is then:
+
+```text
+page: not compared
+```
 
 The summary line reads `check: ok`, or when something is wrong:
 

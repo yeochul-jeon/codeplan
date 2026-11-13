@@ -5,6 +5,8 @@ import { basename, dirname, join, resolve } from "node:path";
 import { SettingsError, readConfig, type Config } from "./config.js";
 import { DraftError, draft } from "./draft.js";
 import { historyHtml, readRecords } from "./history.js";
+import { importFacts } from "./imports.js";
+import { lineTotal } from "./lines.js";
 import { isPlainFile, measure, unownedTest, type Measurement } from "./measure.js";
 import { planPath, readPlanFile, type PlanPart } from "./plan.js";
 import { readSnapshot, reportText, snapshotText, takeSnapshot, type PageState, type Snapshot } from "./report.js";
@@ -71,6 +73,9 @@ Commands:
 Options:
   --repo <dir>        Repository to read (default: the current directory).
 
+Check options:
+  --no-page           Do not compare the page. The page place is not read.
+
 Summary options:
   --mermaid           Print only the mermaid diagram.
 
@@ -105,7 +110,7 @@ const LIST_LIMIT = 30;
 
 // The commands and options the command line takes.
 export const COMMANDS = ["check", "update", "draft", "summary", "snapshot", "report", "history", "help"];
-export const OPTIONS = ["--repo", "--max-parts", "--language", "--root", "--mermaid", "--base"];
+export const OPTIONS = ["--repo", "--no-page", "--max-parts", "--language", "--root", "--mermaid", "--base"];
 
 // What is at the page place: nothing, a codeplan page, or something else.
 function pagePlace(repo: string, page: string): { kind: "absent" } | { kind: "page"; bytes: Buffer } | { kind: "other"; what: string } {
@@ -130,7 +135,8 @@ function pagePlace(repo: string, page: string): { kind: "absent" } | { kind: "pa
 }
 
 // `page` says what to do about the page place: "compare" (check and update;
-// something that is not a codeplan page there is an error), "skip" (summary:
+// something that is not a codeplan page there is an error), "skip" (summary
+// and check --no-page:
 // the place is not read) or "note" (snapshot and report: something else
 // there is noted as a foreign page).
 export function check(repo: string, page: "compare" | "skip" | "note" = "compare"): CheckResult {
@@ -174,6 +180,21 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
     unowned: unownedTest(config, prepared.parts),
     files: new Map(measurement.parts.map((p) => [p.id, p.files])),
     owners: measurement.owners,
+    lineCount: (path) => {
+      // A measured file was read when it was measured.
+      const measuredLines = measurement.lines.get(path);
+      if (measuredLines !== undefined) return measuredLines;
+      if (!isPlainFile(repo, path)) return null;
+      try {
+        return lineTotal(readFileSync(join(repo, path)));
+      } catch {
+        return null;
+      }
+    },
+    imports:
+      config.languages.includes("java") && prepared.excluded === 0 && measurement.contested.length === 0
+        ? importFacts(measurement.owners, measurement.java)
+        : null,
   });
   const result = {
     kind: "measured" as const,
@@ -339,6 +360,13 @@ const FIXES: Record<string, string> = {
   "task-done-missing": "make the files that are not there, take them out of makes, or set the status the task has now",
   "task-todo-has-files": "nothing has to change; if the files are not what this task makes, correct makes",
   "task-path-unowned": "add a pattern for the path to a part's paths, or correct the path in makes",
+  "evidence-not-read": "write the evidence as a path from the repository root, a colon and a line number of 1 or more",
+  "evidence-no-file": "write the path of a file that is in the repository, or remove the evidence",
+  "evidence-no-line": "write the line that shows the use as the file is now, or remove the evidence",
+  "import-without-use":
+    "add a use of that part to this part's uses; nothing has to change if the plan is not to show that use",
+  "use-without-import":
+    "nothing has to change if the part uses the other without an import line; remove the use if it is no longer there",
 };
 
 const fixFor = (code: string, plan: string): string =>
@@ -434,7 +462,8 @@ function listSection(title: string, fix: string, items: string[]): string {
   return `${title} (${items.length})\n  fix: ${fix}\n${shown.join("")}${more}`;
 }
 
-function checkReport(result: CheckResult & { kind: "measured" }): RunResult {
+// `noPage`: the page was not compared, and a line before the last says so.
+function checkReport(result: CheckResult & { kind: "measured" }, noPage: boolean): RunResult {
   const { config, measurement: m, diagnostics, excluded } = result;
   const plan = planPath(config.home);
   let stdout = `languages: ${config.languages.join(", ")}\n`;
@@ -474,6 +503,7 @@ function checkReport(result: CheckResult & { kind: "measured" }): RunResult {
   const errors = diagnostics.filter((d) => d.severity === "error").length;
   const warnings = diagnostics.filter((d) => d.severity === "warning").length;
   const problems = orphans.length + m.contested.length + m.unwatched.length;
+  if (noPage) stdout += "page: not compared\n";
   if (problems === 0 && errors === 0 && warnings === 0 && excluded === 0 && !outdated) {
     stdout += "check: ok\n";
     return { code: 0, stdout, stderr };
@@ -499,6 +529,7 @@ export function run(argv: readonly string[], cwd: string): RunResult {
   const roots: string[] = [];
   const draftFlags: string[] = [];
   let mermaid = false;
+  let noPage = false;
   let base: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
@@ -508,6 +539,8 @@ export function run(argv: readonly string[], cwd: string): RunResult {
       repo = resolve(cwd, value);
     } else if (arg === "--mermaid") {
       mermaid = true;
+    } else if (arg === "--no-page") {
+      noPage = true;
     } else if (arg === "--base") {
       const value = argv[++i];
       if (value === undefined) return usageError("--base needs a file");
@@ -538,6 +571,7 @@ export function run(argv: readonly string[], cwd: string): RunResult {
   }
   if (command !== "summary" && mermaid) return usageError("--mermaid is an option of summary only");
   if (command !== "report" && base !== undefined) return usageError("--base is an option of report only");
+  if (command !== "check" && noPage) return usageError("--no-page is an option of check only");
   if (maxParts !== undefined && !/^[0-9]+$/.test(maxParts)) {
     return usageError(`--max-parts needs a whole number of 1 or more, not "${maxParts}"`);
   }
@@ -565,9 +599,9 @@ export function run(argv: readonly string[], cwd: string): RunResult {
   if (command === "summary") return summary(repo, mermaid);
   if (command === "snapshot") return snapshot(repo);
   if (command === "report") return report(repo, base);
-  const result = check(repo);
+  const result = check(repo, noPage ? "skip" : "compare");
   if (result.kind === "error") {
     return { code: 2, stdout: "", stderr: `codeplan: ${result.message}\n` };
   }
-  return checkReport(result);
+  return checkReport(result, noPage);
 }

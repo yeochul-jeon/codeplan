@@ -305,6 +305,69 @@ function lineTotal(bytes) {
 // src/measure.ts
 import { lstatSync, readdirSync, readFileSync as readFileSync2 } from "node:fs";
 import { join as join2 } from "node:path";
+
+// src/imports.ts
+var PIECE = String.raw`[\p{L}_$][\p{L}\p{N}_$]*`;
+var NAME = String.raw`${PIECE}(?:\.${PIECE})*`;
+var PACKAGE_LINE = new RegExp(String.raw`^[ \t]*package[ \t]+(${NAME})[ \t]*;`, "u");
+var IMPORT_LINE = new RegExp(String.raw`^[ \t]*import[ \t]+(static[ \t]+)?(${NAME})(\.\*)?[ \t]*;`, "u");
+function javaFile(text) {
+  let pack = null;
+  const imports = [];
+  for (const line of text.split("\n")) {
+    if (pack === null) pack = PACKAGE_LINE.exec(line)?.[1] ?? null;
+    const found = IMPORT_LINE.exec(line);
+    if (found !== null) imports.push({ name: found[2], isStatic: found[1] !== void 0, all: found[3] !== void 0 });
+  }
+  return { package: pack, imports };
+}
+function importFacts(owners, java) {
+  const byName = /* @__PURE__ */ new Map();
+  const byPackage = /* @__PURE__ */ new Map();
+  const packages = /* @__PURE__ */ new Map();
+  for (const [path, file] of java) {
+    const base = path.slice(path.lastIndexOf("/") + 1, -".java".length);
+    const name = file.package === null ? base : `${file.package}.${base}`;
+    byName.set(name, byName.has(name) ? null : path);
+    const owner = owners.get(path);
+    const set = packages.get(owner) ?? /* @__PURE__ */ new Set();
+    packages.set(owner, set);
+    if (file.package !== null) {
+      set.add(file.package);
+      byPackage.set(file.package, [...byPackage.get(file.package) ?? [], path]);
+    }
+  }
+  const typeFile = (name) => {
+    for (let n = name; ; n = n.slice(0, n.lastIndexOf("."))) {
+      if (byName.has(n)) return byName.get(n);
+      if (!n.includes(".")) return null;
+    }
+  };
+  const pairs = /* @__PURE__ */ new Map();
+  const possible = /* @__PURE__ */ new Map();
+  for (const [path, file] of java) {
+    const from = owners.get(path);
+    for (const found of file.imports) {
+      const inPackage = !found.isStatic && found.all ? byPackage.get(found.name) : void 0;
+      if (inPackage !== void 0) {
+        const set = possible.get(from) ?? /* @__PURE__ */ new Set();
+        possible.set(from, set);
+        for (const other of inPackage) set.add(owners.get(other));
+        continue;
+      }
+      const target = typeFile(found.name);
+      if (target === null) continue;
+      const to = owners.get(target);
+      if (to === from) continue;
+      const row = pairs.get(from) ?? /* @__PURE__ */ new Map();
+      pairs.set(from, row);
+      if (!row.has(to)) row.set(to, path);
+    }
+  }
+  return { pairs, possible, packages };
+}
+
+// src/measure.ts
 var byCodeUnit = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 function listFiles(repo, prunedDirs) {
   const out = [];
@@ -450,6 +513,8 @@ function measure(repo, config, plan) {
   const unwatched = [];
   const owners = /* @__PURE__ */ new Map();
   const wonBy = /* @__PURE__ */ new Map();
+  const lines = /* @__PURE__ */ new Map();
+  const java = /* @__PURE__ */ new Map();
   let watchedFiles = 0;
   for (const path of files) {
     if (!rules.isWatched(path)) {
@@ -479,7 +544,10 @@ function measure(repo, config, plan) {
     wonBy.set(path, matched.get(ids[0]));
     const total = totals.get(ids[0]);
     total.files++;
-    total.lines += lineTotal(readFileSync2(join2(repo, path)));
+    const bytes = readFileSync2(join2(repo, path));
+    lines.set(path, lineTotal(bytes));
+    total.lines += lines.get(path);
+    if (path.endsWith(".java")) java.set(path, javaFile(bytes.toString("utf8")));
   }
   return {
     parts: plan.map((p2) => ({ id: p2.id, ...totals.get(p2.id) })),
@@ -488,7 +556,9 @@ function measure(repo, config, plan) {
     unwatched,
     watchedFiles,
     owners,
-    wonBy
+    wonBy,
+    lines,
+    java
   };
 }
 
@@ -1692,7 +1762,12 @@ var SEVERITY = {
   "no-plan": "warning",
   "task-done-missing": "info",
   "task-todo-has-files": "info",
-  "task-path-unowned": "info"
+  "task-path-unowned": "info",
+  "evidence-not-read": "info",
+  "evidence-no-file": "info",
+  "evidence-no-line": "info",
+  "import-without-use": "info",
+  "use-without-import": "info"
 };
 function diagnostic(code, at, message) {
   return { code, severity: SEVERITY[code], at, message };
@@ -1804,6 +1879,19 @@ function planTasks(prepared, isFile) {
   }
   return out;
 }
+function evidenceFinding(evidence, lineCount) {
+  const written = JSON.stringify(evidence);
+  const colon = evidence.lastIndexOf(":");
+  const path = evidence.slice(0, Math.max(colon, 0));
+  const line = evidence.slice(colon + 1);
+  if (colon < 0 || !/^[1-9][0-9]*$/.test(line) || !isPathForm(path)) {
+    return ["evidence-not-read", `evidence ${written} is not written as file:line`];
+  }
+  const count2 = lineCount(path);
+  if (count2 === null) return ["evidence-no-file", `the file of evidence ${written} is not a file in the repository`];
+  if (count2 < Number(line)) return ["evidence-no-line", `the file of evidence ${written} does not have that line`];
+  return null;
+}
 function diagnosePlan(prepared, facts) {
   const out = [];
   const emit = (code, at, message) => out.push(diagnostic(code, at, message));
@@ -1813,6 +1901,9 @@ function diagnosePlan(prepared, facts) {
     return out;
   }
   const measured = new Set(prepared.parts.map((p2) => p2.id));
+  const plannedIds = new Set(prepared.parts.filter((p2) => p2.planned).map((p2) => p2.id));
+  const imports = facts.imports;
+  const sharePackage = (a, b) => [...imports.packages.get(a)].some((p2) => imports.packages.get(b).has(p2));
   const missing = (at, who, key) => emit("bad-shape", at, `${who}\`${key}\` is required`);
   const string = (obj, key, at, who, required) => {
     if (!(key in obj)) {
@@ -1991,6 +2082,19 @@ function diagnosePlan(prepared, facts) {
         `${who}the part is planned, but ${facts.files.get(partId)} watched files are measured in it`
       );
     }
+    const uses = "uses" in part ? part.uses : [];
+    if (imports !== null && partId !== null && !repeated && !planned && Array.isArray(uses)) {
+      const named = new Set(uses.map((use) => isObj(use) ? use.to : void 0));
+      for (const other of prepared.parts) {
+        const example = imports.pairs.get(partId)?.get(other.id);
+        if (example === void 0 || other.planned || named.has(other.id)) continue;
+        emit(
+          "import-without-use",
+          `${at}.uses`,
+          `${who}files of this part import files of part "${other.id}" and the plan has no use of it, for example ${example}`
+        );
+      }
+    }
     if ("uses" in part) {
       if (!Array.isArray(part.uses)) {
         emit("bad-shape", `${at}.uses`, `${who}\`uses\` must be an array`);
@@ -2013,6 +2117,9 @@ function diagnosePlan(prepared, facts) {
             if (!prepared.targets.has(to)) {
               emit("unknown-target", `${uat}.to`, `${who}"${to}" is not a part or external`);
             }
+            if (imports !== null && partId !== null && to !== partId && prepared.partIds.has(to) && !planned && !plannedIds.has(to) && imports.packages.has(partId) && imports.packages.has(to) && !sharePackage(partId, to) && !imports.pairs.get(partId)?.has(to) && !imports.possible.get(partId)?.has(to)) {
+              emit("use-without-import", `${uat}.to`, `${who}no file of this part imports a file of part "${to}"`);
+            }
           }
           text(use, "why", `${uat}.why`, who, false, !repeated);
           if ("evidence" in use) {
@@ -2022,6 +2129,9 @@ function diagnosePlan(prepared, facts) {
               use.evidence.forEach((e, j) => {
                 if (typeof e !== "string") {
                   emit("bad-shape", `${uat}.evidence[${j}]`, `${who}evidence must be a string`);
+                } else if (!repeated) {
+                  const found = evidenceFinding(e, facts.lineCount);
+                  if (found !== null) emit(found[0], `${uat}.evidence[${j}]`, `${who}${found[1]}`);
                 }
               });
             }
@@ -3201,6 +3311,9 @@ Commands:
 Options:
   --repo <dir>        Repository to read (default: the current directory).
 
+Check options:
+  --no-page           Do not compare the page. The page place is not read.
+
 Summary options:
   --mermaid           Print only the mermaid diagram.
 
@@ -3232,7 +3345,7 @@ file in it is a snapshot.
 `;
 var LIST_LIMIT2 = 30;
 var COMMANDS = ["check", "update", "draft", "summary", "snapshot", "report", "history", "help"];
-var OPTIONS = ["--repo", "--max-parts", "--language", "--root", "--mermaid", "--base"];
+var OPTIONS = ["--repo", "--no-page", "--max-parts", "--language", "--root", "--mermaid", "--base"];
 function pagePlace(repo, page) {
   const segments = page.split("/");
   for (let i = 1; i < segments.length; i++) {
@@ -3289,7 +3402,18 @@ function check(repo, page = "compare") {
     isFile,
     unowned: unownedTest(config, prepared.parts),
     files: new Map(measurement.parts.map((p2) => [p2.id, p2.files])),
-    owners: measurement.owners
+    owners: measurement.owners,
+    lineCount: (path) => {
+      const measuredLines = measurement.lines.get(path);
+      if (measuredLines !== void 0) return measuredLines;
+      if (!isPlainFile(repo, path)) return null;
+      try {
+        return lineTotal(readFileSync6(join6(repo, path)));
+      } catch {
+        return null;
+      }
+    },
+    imports: config.languages.includes("java") && prepared.excluded === 0 && measurement.contested.length === 0 ? importFacts(measurement.owners, measurement.java) : null
   });
   const result2 = {
     kind: "measured",
@@ -3439,7 +3563,12 @@ var FIXES = {
   "unknown-reference": "write the id of an existing part or external in the braces",
   "task-done-missing": "make the files that are not there, take them out of makes, or set the status the task has now",
   "task-todo-has-files": "nothing has to change; if the files are not what this task makes, correct makes",
-  "task-path-unowned": "add a pattern for the path to a part's paths, or correct the path in makes"
+  "task-path-unowned": "add a pattern for the path to a part's paths, or correct the path in makes",
+  "evidence-not-read": "write the evidence as a path from the repository root, a colon and a line number of 1 or more",
+  "evidence-no-file": "write the path of a file that is in the repository, or remove the evidence",
+  "evidence-no-line": "write the line that shows the use as the file is now, or remove the evidence",
+  "import-without-use": "add a use of that part to this part's uses; nothing has to change if the plan is not to show that use",
+  "use-without-import": "nothing has to change if the part uses the other without an import line; remove the use if it is no longer there"
 };
 var fixFor = (code, plan) => code === "no-plan" ? `create ${plan} and give each part the paths it owns` : FIXES[code];
 function findingLines(diagnostics, plan) {
@@ -3531,7 +3660,7 @@ function listSection(title, fix, items) {
   fix: ${fix}
 ${shown2.join("")}${more}`;
 }
-function checkReport(result2) {
+function checkReport(result2, noPage) {
   const { config, measurement: m, diagnostics, excluded } = result2;
   const plan = planPath(config.home);
   let stdout = `languages: ${config.languages.join(", ")}
@@ -3572,6 +3701,7 @@ function checkReport(result2) {
   const errors = diagnostics.filter((d) => d.severity === "error").length;
   const warnings = diagnostics.filter((d) => d.severity === "warning").length;
   const problems = orphans.length + m.contested.length + m.unwatched.length;
+  if (noPage) stdout += "page: not compared\n";
   if (problems === 0 && errors === 0 && warnings === 0 && excluded === 0 && !outdated) {
     stdout += "check: ok\n";
     return { code: 0, stdout, stderr };
@@ -3596,6 +3726,7 @@ ${USAGE}`
   const roots = [];
   const draftFlags = [];
   let mermaid = false;
+  let noPage = false;
   let base;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -3605,6 +3736,8 @@ ${USAGE}`
       repo = resolve(cwd, value);
     } else if (arg === "--mermaid") {
       mermaid = true;
+    } else if (arg === "--no-page") {
+      noPage = true;
     } else if (arg === "--base") {
       const value = argv[++i];
       if (value === void 0) return usageError("--base needs a file");
@@ -3634,6 +3767,7 @@ ${USAGE}`
   }
   if (command !== "summary" && mermaid) return usageError("--mermaid is an option of summary only");
   if (command !== "report" && base !== void 0) return usageError("--base is an option of report only");
+  if (command !== "check" && noPage) return usageError("--no-page is an option of check only");
   if (maxParts !== void 0 && !/^[0-9]+$/.test(maxParts)) {
     return usageError(`--max-parts needs a whole number of 1 or more, not "${maxParts}"`);
   }
@@ -3664,12 +3798,12 @@ ${USAGE}`
   if (command === "summary") return summary(repo, mermaid);
   if (command === "snapshot") return snapshot(repo);
   if (command === "report") return report(repo, base);
-  const result2 = check(repo);
+  const result2 = check(repo, noPage ? "skip" : "compare");
   if (result2.kind === "error") {
     return { code: 2, stdout: "", stderr: `codeplan: ${result2.message}
 ` };
   }
-  return checkReport(result2);
+  return checkReport(result2, noPage);
 }
 
 // src/bin.ts
