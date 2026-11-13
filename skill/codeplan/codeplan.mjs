@@ -2703,13 +2703,14 @@ table { border-collapse: separate; border-spacing: 0; border-top: 1px solid var(
 th, td { border-right: 1px solid var(--cp-control-line); border-bottom: 1px solid var(--cp-control-line); padding: 4px 8px; text-align: left; vertical-align: top; white-space: nowrap; font-weight: 400; }
 tr > :first-child { border-left: 1px solid var(--cp-control-line); }
 .records tr > :first-child { position: sticky; left: 0; background: var(--cp-bg); }
-.records th span { display: block; color: var(--cp-text-dim); }
+.records th span { display: block; width: min-content; white-space: normal; color: var(--cp-text-dim); }
 th[data-same] { color: var(--cp-text-dim); white-space: normal; width: 4.5em; max-width: 4.5em; }
 th[data-marks~="config"], td.config { border-left: 4px solid var(--cp-control-line); }
 .records td:not(:empty) { background: var(--cp-part-fill); box-shadow: inset 0 0 0 1px var(--cp-part-line); }
 .records [data-active] { box-shadow: inset 3px 0 0 var(--cp-active), inset -3px 0 0 var(--cp-active); font-weight: 700; }
 .records td[data-active]:not(:empty) { box-shadow: inset 0 0 0 3px var(--cp-active); }
 button { background: var(--cp-control-fill); color: var(--cp-control-text); border: 1px solid var(--cp-control-line); border-radius: 4px; font: inherit; padding: 2px 8px; }
+th[data-record] button { writing-mode: vertical-rl; padding: 8px 2px; }
 section { margin: 12px 0; }
 #tools { margin: 12px 0 0; }
 `;
