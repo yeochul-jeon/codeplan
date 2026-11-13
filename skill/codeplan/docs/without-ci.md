@@ -112,7 +112,7 @@ the plan is out of date: orphans, unwatched files and warnings do not stop
 known to match the code only as of the last time `check` exited with 0.
 Run `check` first when that matters.
 
-## A clone that does not commit the page
+## When the page is not committed
 
 When the plan file is committed and the page is not, a clone has no page
 or an old one, and `check` exits with 1 for that alone. Run

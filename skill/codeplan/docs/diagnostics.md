@@ -47,7 +47,7 @@ last line of `check`, and with nothing else to report that line is
 | `evidence-no-file` | info | `uses[i].evidence[j]` | No file can be read at that path (nothing there, a directory, a symbolic link). The file does not have to be in the watch set. | Write the path of a file that is in the repository, or remove the evidence. |
 | `evidence-no-line` | info | `uses[i].evidence[j]` | The file has fewer lines than the line number. | Write the line that shows the use as the file is now, or remove the evidence. |
 | `import-without-use` | info | `parts[i].uses` | A `.java` file of this part imports a `.java` file of another part, and this part has no use of that part. One line for each such part; the message names one file as an example. | Add a use of that part. Nothing has to change if the plan is not to show that use. |
-| `use-without-import` | info | `uses[i].to` | The use names a part, both parts have `.java` files, and no import line of this part is a file of that part. | Nothing has to change if the part uses the other without an import line. Remove the use if it is no longer there. |
+| `use-without-import` | info | `uses[i].to` | The use names a part, both parts have `.java` files, and no file of this part imports a file of that part. | Nothing has to change if the part uses the other without an import line. Remove the use if it is no longer there. |
 
 ## Evidence and imports
 
@@ -72,8 +72,8 @@ What `check` does not read or look at here:
 - It does not read the line of an evidence: an evidence whose line has
   moved to other code is not found.
 - It does not read the imports of `.kt`, JavaScript and TypeScript files.
-- It does not look for a use inside one package, where no import is
-  written.
+- It does not look for a use between files of one package, where no import
+  is written.
 - It does not look for a type written with its full name and no import, or
   for a use that finds its target by name.
 - It does not look at which types of a `.*` import are used.
