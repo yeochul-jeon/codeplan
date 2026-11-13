@@ -174,6 +174,8 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
   const measurement = measure(repo, config, prepared.parts);
   const isFile = (path: string) => isPlainFile(repo, path);
   const tasks = planTasks(prepared, isFile);
+  // The line counts of evidence files that are not measured, each read once.
+  const otherLines = new Map<string, number | null>();
   const diagnostics = diagnosePlan(prepared, {
     repo,
     isFile,
@@ -184,12 +186,16 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
       // A measured file was read when it was measured.
       const measuredLines = measurement.lines.get(path);
       if (measuredLines !== undefined) return measuredLines;
-      if (!isPlainFile(repo, path)) return null;
-      try {
-        return lineTotal(readFileSync(join(repo, path)));
-      } catch {
-        return null;
+      if (!otherLines.has(path)) {
+        let count: number | null = null;
+        try {
+          if (isPlainFile(repo, path)) count = lineTotal(readFileSync(join(repo, path)));
+        } catch {
+          count = null;
+        }
+        otherLines.set(path, count);
       }
+      return otherLines.get(path)!;
     },
     imports:
       config.languages.includes("java") && prepared.excluded === 0 && measurement.contested.length === 0

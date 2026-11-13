@@ -244,6 +244,24 @@ describe("evidence: a repository that is not java, and the form of the string", 
     ]);
   });
 
+  test("without the java language, .java files that are watched have no import findings", () => {
+    const repo = makeRepo({
+      "package.json": "{}\n",
+      "codeplan.json": JSON.stringify({ languages: ["js"], watch: ["src/**", "lib/**"] }),
+      "src/a/A.java": "package a;\nimport b.B;\nclass A {}\n",
+      "lib/b/B.java": "package b;\nclass B {}\n",
+      [PLAN_FILE]: JSON.stringify({
+        format: 1,
+        name: "",
+        about: "",
+        parts: [part("a", "A", ["src/**"]), part("b", "B", ["lib/**"], { uses: [{ to: "a", evidence: ["src/a/A.java:4"] }] })],
+      }),
+    });
+    const out = checked(repo);
+    expect(out.stdout).toContain("part a: 1 files, 3 lines");
+    expect(out.rows).toEqual([["parts[1].uses[0].evidence[0]", "evidence-no-line", 'the file of evidence "src/a/A.java:4" does not have that line']]);
+  });
+
   test("strings that are not written as file:line, and strings that are", () => {
     const not = ["", "a.java", "a.java:", "a.java:0", "a.java:01", "a.java:1a", "/a.java:1", "a//b.java:1", "./a.java:1", "a/../b.java:1", "a\\b.java:1", ":3"];
     expect(codes(jsRepo(not))).toEqual(not.map((_, i) => [i, "evidence-not-read"]));

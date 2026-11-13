@@ -3397,6 +3397,7 @@ function check(repo, page = "compare") {
   const measurement = measure(repo, config, prepared.parts);
   const isFile = (path) => isPlainFile(repo, path);
   const tasks = planTasks(prepared, isFile);
+  const otherLines = /* @__PURE__ */ new Map();
   const diagnostics = diagnosePlan(prepared, {
     repo,
     isFile,
@@ -3406,12 +3407,16 @@ function check(repo, page = "compare") {
     lineCount: (path) => {
       const measuredLines = measurement.lines.get(path);
       if (measuredLines !== void 0) return measuredLines;
-      if (!isPlainFile(repo, path)) return null;
-      try {
-        return lineTotal(readFileSync6(join6(repo, path)));
-      } catch {
-        return null;
+      if (!otherLines.has(path)) {
+        let count2 = null;
+        try {
+          if (isPlainFile(repo, path)) count2 = lineTotal(readFileSync6(join6(repo, path)));
+        } catch {
+          count2 = null;
+        }
+        otherLines.set(path, count2);
       }
+      return otherLines.get(path);
     },
     imports: config.languages.includes("java") && prepared.excluded === 0 && measurement.contested.length === 0 ? importFacts(measurement.owners, measurement.java) : null
   });

@@ -77,7 +77,7 @@ What `check` does not read or look at here:
 - It does not look for a type written with its full name and no import, or
   for a use that finds its target by name.
 - It does not look at which types of a `.*` import are used.
-- It does not read two or more imports on one line, an import written over
+- It does not read a second import on one line, an import written over
   several lines, or `import module`.
 - It does not look for a type declared under a name other than its file
   name.
