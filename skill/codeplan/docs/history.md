@@ -79,8 +79,12 @@ Each column is a record and each row is a part.
   the line count did not, `new` for a part that was not there before, and
   `removed` for one that is gone. An empty cell means the part has no row
   in the comparison of that record: the part did not change, or the column
-  is not compared or not measured. More and fewer lines differ by the sign
-  alone, not by colour.
+  is not compared or not measured.
+- The fill of a cell with a change in lines shows how many lines changed,
+  in three steps that the line under the table names: `Fill by lines
+  changed: 0–9, 10–99, 100 or more.` The fill shows the size only: `+12`
+  and `-12` have the same fill, and more and fewer lines differ by the sign
+  alone. A `new` or `removed` cell has the plain fill of a cell with text.
 - A part that has text in no column has no row. Such parts are named
   under the table: `Parts not in the table: <ids>.`
 - The rows are in the order of the parts in the last record, then the

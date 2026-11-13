@@ -62,7 +62,8 @@ function history(dir: string, ...more: string[]): RunResult {
 
 // A reader for the HTML that history prints: elements with attributes in
 // double quotes, text with the four entities, and no element that has both
-// text and child elements.
+// text and child elements but the paragraph of the sizes, whose text is kept
+// as children in their order.
 const ENTITY: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"' };
 function decode(raw: string): string {
   expect(raw.replace(/&(amp|lt|gt|quot);/g, ""), raw).not.toMatch(/[&<>"]/);
@@ -80,6 +81,7 @@ function parse(html: string, doc: FakeDocument): El {
     if (m === null) break;
     at = token.lastIndex;
     const top = open[open.length - 1]!;
+    const mixed = top.getAttribute("data-role") === "sizes";
     const child = (name: string) => {
       expect(top.textContent, `text beside <${name}>`).toBe("");
       const el = new El(name, doc);
@@ -94,6 +96,8 @@ function parse(html: string, doc: FakeDocument): El {
       for (const a of m[5]!.matchAll(/([a-z-]+)(?:="([^"]*)")?/g)) el.setAttribute(a[1]!, decode(a[2] ?? ""));
       if (el.hasAttribute("id")) doc.byId.set(el.getAttribute("id")!, el);
       if (m[4] !== "meta") open.push(el);
+    } else if (m[6] !== undefined && mixed) {
+      top.appendChild(new El("#text", doc)).textContent = decode(m[6]);
     } else if (m[6] !== undefined && m[6].trim() !== "") {
       expect(top.children, `text beside elements in <${top.name}>`).toEqual([]);
       top.textContent += decode(m[6]);
@@ -109,8 +113,11 @@ interface Opened {
   root: El;
   doc: FakeDocument;
   sentences: string[];
-  // Paragraphs between the table and the first section.
+  // Paragraphs between the table and the first section, but the one of the
+  // sizes.
   after: string[];
+  // The data-size of each cell that has one, as "<part>/<record>".
+  sizes: Record<string, string>;
   columns: { name: string; marks: string | null; same: string | null }[];
   parts: string[];
   // The text of each cell that has text, as "<part>/<record>".
@@ -139,6 +146,7 @@ function open(html: string, storage = new Map<string, string>()): Opened {
   const heads = head!.children.filter((c) => c.hasAttribute("data-record"));
   expect(head!.children[0]!.textContent).toBe("Part");
   const cells: Record<string, string> = {};
+  const sizes: Record<string, string> = {};
   for (const row of rows) {
     expect(row.children).toHaveLength(head!.children.length);
     expect(row.children[0]!.textContent).toBe(row.getAttribute("data-part"));
@@ -147,8 +155,12 @@ function open(html: string, storage = new Map<string, string>()): Opened {
       if (i === 0) return;
       expect(cell.name).toBe("td");
       expect(cell.children).toEqual([]);
+      const at = `${row.getAttribute("data-part")}/${h.getAttribute("data-record")}`;
       if (h.hasAttribute("data-same")) expect(cell.textContent).toBe("");
-      else if (cell.textContent !== "") cells[`${row.getAttribute("data-part")}/${h.getAttribute("data-record")}`] = cell.textContent;
+      else if (cell.textContent !== "") cells[at] = cell.textContent;
+      // A cell has a size when its text is a change in lines, and only then.
+      expect(cell.hasAttribute("data-size"), at).toBe(/^[+-]\d+$/.test(cell.textContent));
+      if (cell.hasAttribute("data-size")) sizes[at] = cell.getAttribute("data-size")!;
     });
   }
   for (const h of heads) expect(h.children.filter((c) => c.name === "button")).toHaveLength(1);
@@ -174,7 +186,8 @@ function open(html: string, storage = new Map<string, string>()): Opened {
     root,
     doc,
     sentences: main.children.slice(0, box).map(textOf),
-    after: main.children.slice(box + 1).filter((c) => c.name === "p").map(textOf),
+    after: main.children.slice(box + 1).filter((c) => c.name === "p" && c.getAttribute("data-role") !== "sizes").map(textOf),
+    sizes,
     columns: heads.map((h) => {
       const next = head!.children[head!.children.indexOf(h) + 1];
       const same = next?.hasAttribute("data-same") ? next : undefined;
@@ -612,6 +625,7 @@ describe("history: the file", () => {
     "--cp-zone-fill", "--cp-zone-line", "--cp-zone-title", "--cp-edge", "--cp-connector", "--cp-active",
     "--cp-control-fill", "--cp-control-line", "--cp-control-text",
   ];
+  const SIZES = ["--cp-size-1", "--cp-size-2", "--cp-size-3"];
 
   test("starts with its mark, loads nothing, and has no path or directory name", () => {
     const dir = sameThenMore();
@@ -639,16 +653,16 @@ describe("history: the file", () => {
   test("the frame keeps colours in token definitions", () => {
     const html = history(sameThenMore()).stdout;
     const css = html.slice(html.indexOf("<style>") + 7, html.indexOf("</style>"));
-    const defined = [...css.matchAll(/(--cp-[a-z-]+)\s*:/g)].map((m) => m[1]!);
-    expect([...new Set(defined)].sort()).toEqual([...TOKENS].sort());
+    const defined = [...css.matchAll(/(--cp-[a-z0-9-]+)\s*:/g)].map((m) => m[1]!);
+    expect([...new Set(defined)].sort()).toEqual([...TOKENS, ...SIZES].sort());
     const uses = [...html.matchAll(/var\(([^)]*)\)/g)].map((m) => m[1]!.trim());
     expect(uses.length).toBeGreaterThan(0);
-    for (const u of uses) expect(TOKENS, u).toContain(u);
-    const withoutDefs = html.replace(/--cp-[a-z-]+\s*:\s*[^;]+;/g, "");
+    for (const u of uses) expect([...TOKENS, ...SIZES], u).toContain(u);
+    const withoutDefs = html.replace(/--cp-[a-z0-9-]+\s*:\s*[^;]+;/g, "");
     expect(withoutDefs).not.toMatch(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/);
     for (const m of withoutDefs.matchAll(/(?:^|[;{\s])(fill|stroke|color|background(?:-color)?|border(?:-(?:top|right|bottom|left|color))?|box-shadow)\s*:\s*([^;}]+)/g)) {
       const value = m[2]!
-        .replace(/var\(--cp-[a-z-]+\)/g, "")
+        .replace(/var\(--cp-[a-z0-9-]+\)/g, "")
         .replace(/\b(none|transparent|currentColor|inherit|solid|inset|\d+(\.\d+)?(px)?)\b|[,-]/g, "")
         .trim();
       expect(value, `${m[1]}: ${m[2]}`).toBe("");
@@ -748,5 +762,168 @@ describe("history: the file", () => {
     expect(v.columns.slice(0, 31).every((c) => c.marks === "not-measured")).toBe(true);
     expect(v.columns[31]).toEqual({ name: "n01", marks: null, same: "39" });
     expect(v.content("n01")[2]).toBe(`The next 39 records are the same: ${names("n", 2, 31)}, and 9 more.`);
+  });
+});
+
+describe("history: the fill of a cell by the size of its change", () => {
+  const five = ["p0", "p9", "p10", "p99", "p100"].map((id) => part(id, [`src/${id}/**`]));
+  const STILL = part("still", ["src/still/**"]);
+  const Q = part("q", ["src/q/**"]);
+  // A tree with record a taken: five parts of 100, 100, 100, 200 and 100
+  // lines, and one part that does not change.
+  function withA(): { repo: string; dir: string } {
+    const repo = makeRepo({
+      "package.json": lines(1),
+      "src/p0/a.ts": lines(100),
+      "src/p9/a.ts": lines(100),
+      "src/p10/a.ts": lines(100),
+      "src/p99/a.ts": lines(200),
+      "src/p100/a.ts": lines(100),
+      "src/still/a.ts": lines(3),
+      [PLAN_FILE]: JSON.stringify(planOf([...five, STILL]), null, 2),
+    });
+    const dir = folder();
+    take(repo, dir, "a", true);
+    return { repo, dir };
+  }
+  // The lines change by 0 (in one more file), +9, -10, -99 and +100.
+  function change(repo: string): void {
+    add(repo, "src/p0/a.ts", 50);
+    add(repo, "src/p0/b.ts", 50);
+    add(repo, "src/p9/a.ts", 109);
+    add(repo, "src/p10/a.ts", 90);
+    add(repo, "src/p99/a.ts", 101);
+    add(repo, "src/p100/a.ts", 200);
+  }
+  const SIZES_P =
+    '<p data-role="sizes">Fill by lines changed: <span data-size="1">0–9</span>, <span data-size="2">10–99</span>, <span data-size="3">100 or more</span>.</p>\n';
+
+  test("a change of 0 to 9 lines has size 1, of 10 to 99 size 2, of 100 or more size 3, whatever its sign", () => {
+    const { repo, dir } = withA();
+    change(repo);
+    take(repo, dir, "b", true);
+    const v = view(dir);
+    expect(v.cells).toEqual({ "p0/b": "+0", "p9/b": "+9", "p10/b": "-10", "p99/b": "-99", "p100/b": "+100" });
+    expect(v.sizes).toEqual({ "p0/b": "1", "p9/b": "1", "p10/b": "2", "p99/b": "2", "p100/b": "3" });
+    expect(v.content("b")[3]).toContain("| p0 | 1 → 2 | 100 → 100 | changed |");
+    // Only those cells and the three spans under the table have a size.
+    const sized = v.root.all().filter((e) => e.hasAttribute("data-size"));
+    expect(sized.map((e) => e.name).sort()).toEqual(["span", "span", "span", "td", "td", "td", "td", "td"]);
+    // The page has none of this.
+    const page = text(repo, "docs/codeplan/codeplan.html");
+    expect(page).not.toContain("--cp-size");
+    expect(page).not.toContain("data-size");
+  });
+
+  test("a new part and a removed part have no size", () => {
+    const { repo, dir } = withA();
+    change(repo);
+    rmSync(join(repo, "src/p9"), { recursive: true });
+    add(repo, "src/q/a.ts", 150);
+    setPlan(repo, planOf([...five.filter((p) => p.id !== "p9"), STILL, Q]));
+    take(repo, dir, "b", true);
+    const v = view(dir);
+    expect(v.cells).toEqual({ "p0/b": "+0", "p10/b": "-10", "p99/b": "-99", "p100/b": "+100", "q/b": "new", "p9/b": "removed" });
+    expect(v.sizes).toEqual({ "p0/b": "1", "p10/b": "2", "p99/b": "2", "p100/b": "3" });
+  });
+
+  test("one paragraph under the table names the three sizes, and only when a cell has a size", () => {
+    const { repo, dir } = withA();
+    // What is after the style: the style names the attributes in every file.
+    const body = (html: string) => html.slice(html.indexOf("<body>"));
+    const one = body(history(dir).stdout);
+    expect(one).not.toContain("data-size");
+    expect(one).not.toContain('data-role="sizes"');
+
+    // Only a new part and a removed part.
+    const other = folder();
+    cpSync(join(dir, "a.json"), join(other, "a.json"));
+    rmSync(join(repo, "src/p9"), { recursive: true });
+    add(repo, "src/q/a.ts", 150);
+    setPlan(repo, planOf([...five.filter((p) => p.id !== "p9"), STILL, Q]));
+    take(repo, other, "b", true);
+    const words = history(other).stdout;
+    expect(open(words).cells).toEqual({ "q/b": "new", "p9/b": "removed" });
+    expect(body(words)).not.toContain("data-size");
+    expect(body(words)).not.toContain('data-role="sizes"');
+
+    const again = withA();
+    change(again.repo);
+    take(again.repo, again.dir, "b", true);
+    const html = history(again.dir).stdout;
+    expect(body(html).split('data-role="sizes"')).toHaveLength(2);
+    expect(html).toContain(`</table>\n</div>\n${SIZES_P}<p>Parts not in the table: still.</p>\n`);
+    const v = open(html);
+    const p = v.root.all().filter((e) => e.getAttribute("data-role") === "sizes");
+    expect(p.map(textOf)).toEqual(["Fill by lines changed: 0–9, 10–99, 100 or more."]);
+    expect(v.after).toEqual(["Parts not in the table: still."]);
+  });
+
+  const css = () => {
+    const html = history(sameThenMore()).stdout;
+    return html.slice(html.indexOf("<style>") + 7, html.indexOf("</style>"));
+  };
+
+  test("the three fills keep the contrasts in the light theme and in the dark theme", () => {
+    const style = css();
+    // The token values of the rules that begin with `start`.
+    const values = (start: string): Record<string, string> =>
+      Object.fromEntries(
+        style
+          .split("\n")
+          .filter((line) => line.startsWith(start))
+          .flatMap((line) => [...line.matchAll(/(--cp-[a-z0-9-]+): (#[0-9a-f]{6});/g)].map((m) => [m[1]!, m[2]!])),
+      );
+    const light = values(':root[data-theme="light"] {');
+    const dark = values(':root[data-theme="dark"] {');
+    expect(Object.keys(light)).toHaveLength(19);
+    expect(Object.keys(dark)).toHaveLength(19);
+    expect(values(":root {")).toEqual(light);
+    expect(values("@media (prefers-color-scheme: dark) { :root:not([data-theme]) {")).toEqual(dark);
+
+    const channel = (c: number) => (c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4);
+    const luminance = (hex: string) => {
+      const n = parseInt(hex.slice(1), 16);
+      return 0.2126 * channel(n >> 16) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255);
+    };
+    const contrast = (a: string, b: string) => {
+      const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+      return (high + 0.05) / (low + 0.05);
+    };
+    for (const [name, theme] of [["light", light], ["dark", dark]] as const) {
+      const of = (token: string) => theme[`--cp-${token}`]!;
+      const steps = [of("bg"), of("size-1"), of("size-2"), of("size-3")];
+      for (let i = 1; i < steps.length; i++) {
+        expect(contrast(of("text"), steps[i]!), `${name} text/size-${i}`).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(of("active"), steps[i]!), `${name} active/size-${i}`).toBeGreaterThanOrEqual(3);
+        expect(contrast(steps[i - 1]!, steps[i]!), `${name} step to size-${i}`).toBeGreaterThanOrEqual(1.2);
+      }
+      // Each size is further from the background than the one before.
+      const away = steps.map((hex) => Math.abs(luminance(hex) - luminance(of("bg"))));
+      expect([...away].sort((x, y) => x - y), name).toEqual(away);
+      expect(Math.sign(luminance(of("size-1")) - luminance(of("bg"))), name).toBe(Math.sign(luminance(of("size-3")) - luminance(of("size-2"))));
+      expect(contrast(of("active"), of("part-fill")), `${name} active/part-fill`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  test("the fill of a cell comes from its size alone", () => {
+    const style = css();
+    const rules = [...style.matchAll(/^([^{}\n@]+) \{ ([^{}\n]*) \}$/gm)].map((m) => ({ selector: m[1]!, body: m[2]! }));
+    for (const n of ["1", "2", "3"]) {
+      const sized = rules.filter((r) => r.selector.includes(`data-size="${n}"`) || r.body.includes(`--cp-size-${n})`));
+      expect(sized).toEqual([
+        {
+          selector: `.records td[data-size="${n}"], p[data-role="sizes"] span[data-size="${n}"]`,
+          body: `background: var(--cp-size-${n});`,
+        },
+      ]);
+    }
+    expect(rules.filter((r) => r.selector.includes("data-size"))).toHaveLength(3);
+    expect(style.split("var(--cp-size-")).toHaveLength(4);
+    expect(style).not.toContain("!important");
+    // They come after the fill of a cell with text and are as specific.
+    const fill = rules.findIndex((r) => r.selector === ".records td:not(:empty)");
+    expect(fill).toBeGreaterThanOrEqual(0);
+    expect(rules.findIndex((r) => r.selector.includes('data-size="1"'))).toBeGreaterThan(fill);
   });
 });

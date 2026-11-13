@@ -2573,6 +2573,7 @@ var fields = (s) => ({
   tasks: s.tasks.map((t) => ({ id: t.id, status: t.status, makes: t.makes, missing: t.missing }))
 });
 var outOfDate = (s) => s.plan !== "ok" || s.orphans.length > 0 || s.contested.length > 0 || s.unwatched.length > 0 || s.diagnostics.some((d) => d.severity === "warning" || d.severity === "error");
+var sizeOf = (by) => Math.abs(by) < 10 ? 1 : Math.abs(by) < 100 ? 2 : 3;
 function columnsOf(records) {
   const columns = [];
   let before = null;
@@ -2597,7 +2598,9 @@ function columnsOf(records) {
       if (found !== null && !found.compared) marks.push("not compared");
       const cells = /* @__PURE__ */ new Map();
       if (found?.compared) {
-        for (const p2 of found.parts) cells.set(p2.id, p2.by === null ? p2.change : `${p2.by < 0 ? "" : "+"}${p2.by}`);
+        for (const p2 of found.parts) {
+          cells.set(p2.id, p2.by === null ? { text: p2.change, size: null } : { text: `${p2.by < 0 ? "" : "+"}${p2.by}`, size: sizeOf(p2.by) });
+        }
       }
       columns.push({ record, marks, same: [], before: before?.name ?? null, found, cells });
     }
@@ -2692,8 +2695,17 @@ function recordBlocks(column) {
   }
   return blocks;
 }
+var SIZES = {
+  light: { "--cp-size-1": "#dbe6f6", "--cp-size-2": "#c0d3ef", "--cp-size-3": "#a4c1e8" },
+  dark: { "--cp-size-1": "#1b2d47", "--cp-size-2": "#263f63", "--cp-size-3": "#2f507d" }
+};
+var sizeTokens = (theme) => Object.entries(theme).map(([k, v]) => `${k}: ${v};`).join(" ");
 var STYLE2 = `
 ${THEME_STYLE}
+:root { ${sizeTokens(SIZES.light)} }
+@media (prefers-color-scheme: dark) { :root:not([data-theme]) { ${sizeTokens(SIZES.dark)} } }
+:root[data-theme="light"] { ${sizeTokens(SIZES.light)} }
+:root[data-theme="dark"] { ${sizeTokens(SIZES.dark)} }
 html, body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font: 13px/1.4 system-ui, sans-serif; }
 main { padding: 16px; }
 p { margin: 0 0 4px; }
@@ -2707,6 +2719,10 @@ tr > :first-child { border-left: 1px solid var(--cp-control-line); }
 th[data-same] { color: var(--cp-text-dim); white-space: normal; width: 4.5em; max-width: 4.5em; }
 th[data-marks~="config"], td.config { border-left: 4px solid var(--cp-control-line); }
 .records td:not(:empty) { background: var(--cp-part-fill); box-shadow: inset 0 0 0 1px var(--cp-part-line); }
+.records td[data-size="1"], p[data-role="sizes"] span[data-size="1"] { background: var(--cp-size-1); }
+.records td[data-size="2"], p[data-role="sizes"] span[data-size="2"] { background: var(--cp-size-2); }
+.records td[data-size="3"], p[data-role="sizes"] span[data-size="3"] { background: var(--cp-size-3); }
+p[data-role="sizes"] span { padding: 0 4px; box-shadow: inset 0 0 0 1px var(--cp-part-line); }
 .records [data-active] { box-shadow: inset 3px 0 0 var(--cp-active), inset -3px 0 0 var(--cp-active); font-weight: 700; }
 .records td[data-active]:not(:empty) { box-shadow: inset 0 0 0 3px var(--cp-active); }
 button { background: var(--cp-control-fill); color: var(--cp-control-text); border: 1px solid var(--cp-control-line); border-radius: 4px; font: inherit; padding: 2px 8px; }
@@ -2762,8 +2778,14 @@ function historyHtml(records, skipped) {
     const same = c.same.length === 0 ? "" : `<th data-same="${c.same.length}">${c.same.length} same records</th>`;
     return `<th data-record="${esc(c.record.name)}"${marks}><button type="button" aria-pressed="false">${esc(c.record.name)}</button>${words}</th>${same}`;
   });
-  const row = (id) => `<tr data-part="${esc(id)}"><th>${esc(id)}</th>` + columns.map((c) => `<td${c.marks.includes("config") ? ' class="config"' : ""}>${esc(c.cells.get(id) ?? "")}</td>${c.same.length === 0 ? "" : "<td></td>"}`).join("") + `</tr>
+  const cell = (c, id) => {
+    const { text, size } = c.cells.get(id) ?? { text: "", size: null };
+    return `<td${c.marks.includes("config") ? ' class="config"' : ""}${size === null ? "" : ` data-size="${size}"`}>${esc(text)}</td>`;
+  };
+  const row = (id) => `<tr data-part="${esc(id)}"><th>${esc(id)}</th>` + columns.map((c) => `${cell(c, id)}${c.same.length === 0 ? "" : "<td></td>"}`).join("") + `</tr>
 `;
+  const sized = columns.some((c) => [...c.cells.values()].some((v) => v.size !== null));
+  const sizes = ["0\u20139", "10\u201399", "100 or more"].map((span, i) => `<span data-size="${i + 1}">${span}</span>`).join(", ");
   return `${HISTORY_MARK}
 <html lang="en">
 <head>
@@ -2781,7 +2803,8 @@ function historyHtml(records, skipped) {
 <tr><th>Part</th>${head.join("")}</tr>
 ` + inTable.map(row).join("") + `</table>
 </div>
-` + (notInTable.length === 0 ? "" : `${p(`Parts not in the table: ${notInTable.join(", ")}.`)}
+` + (sized ? `<p data-role="sizes">Fill by lines changed: ${sizes}.</p>
+` : "") + (notInTable.length === 0 ? "" : `${p(`Parts not in the table: ${notInTable.join(", ")}.`)}
 `) + columns.map((c) => `<section data-role="record" data-record="${esc(c.record.name)}" hidden>
 ${recordBlocks(c).join("\n")}
 </section>

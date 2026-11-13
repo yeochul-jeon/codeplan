@@ -150,9 +150,13 @@ interface Column {
   // The measured record before, and what changed since.
   before: string | null;
   found: Comparison | null;
-  // Part id to the text of its cell.
-  cells: Map<string, string>;
+  // Part id to the text of its cell and, for a change in lines, its size.
+  cells: Map<string, { text: string; size: number | null }>;
 }
+
+// The size of a change in lines: 1 for 0 to 9 lines, 2 for 10 to 99, 3 for
+// 100 or more. More and fewer lines have the same size.
+const sizeOf = (by: number) => (Math.abs(by) < 10 ? 1 : Math.abs(by) < 100 ? 2 : 3);
 
 function columnsOf(records: HistoryRecord[]): Column[] {
   const columns: Column[] = [];
@@ -177,9 +181,11 @@ function columnsOf(records: HistoryRecord[]): Column[] {
       if (base !== null && rulesDiffer(s, base)) marks.push("config");
       if (base !== null && taskChanges(s, base).length > 0) marks.push("tasks");
       if (found !== null && !found.compared) marks.push("not compared");
-      const cells = new Map<string, string>();
+      const cells: Column["cells"] = new Map();
       if (found?.compared) {
-        for (const p of found.parts) cells.set(p.id, p.by === null ? p.change : `${p.by < 0 ? "" : "+"}${p.by}`);
+        for (const p of found.parts) {
+          cells.set(p.id, p.by === null ? { text: p.change, size: null } : { text: `${p.by < 0 ? "" : "+"}${p.by}`, size: sizeOf(p.by) });
+        }
       }
       columns.push({ record, marks, same: [], before: before?.name ?? null, found, cells });
     }
@@ -297,12 +303,29 @@ function recordBlocks(column: Column): string[] {
   return blocks;
 }
 
-// A cell with text is told from an empty one by its fill and its line; more and
-// fewer lines differ in the sign only. The chosen column has the active
-// colour and a heavier weight. A record's name is written downwards and its
-// marks one word to a line, so a long name does not make its column wide.
+// The fills of the three sizes of a change in lines, for this file only: one
+// hue, further from the background as the size grows.
+const SIZES = {
+  light: { "--cp-size-1": "#dbe6f6", "--cp-size-2": "#c0d3ef", "--cp-size-3": "#a4c1e8" },
+  dark: { "--cp-size-1": "#1b2d47", "--cp-size-2": "#263f63", "--cp-size-3": "#2f507d" },
+};
+const sizeTokens = (theme: Record<string, string>) =>
+  Object.entries(theme)
+    .map(([k, v]) => `${k}: ${v};`)
+    .join(" ");
+
+// A cell with text is told from an empty one by its fill and its line. A
+// cell with a change in lines has the fill of its size; more and fewer
+// lines differ in the sign only, not in the fill. The chosen column has the
+// active colour and a heavier weight. A record's name is written downwards
+// and its marks one word to a line, so a long name does not make its column
+// wide.
 const STYLE = `
 ${THEME_STYLE}
+:root { ${sizeTokens(SIZES.light)} }
+@media (prefers-color-scheme: dark) { :root:not([data-theme]) { ${sizeTokens(SIZES.dark)} } }
+:root[data-theme="light"] { ${sizeTokens(SIZES.light)} }
+:root[data-theme="dark"] { ${sizeTokens(SIZES.dark)} }
 html, body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font: 13px/1.4 system-ui, sans-serif; }
 main { padding: 16px; }
 p { margin: 0 0 4px; }
@@ -316,6 +339,10 @@ tr > :first-child { border-left: 1px solid var(--cp-control-line); }
 th[data-same] { color: var(--cp-text-dim); white-space: normal; width: 4.5em; max-width: 4.5em; }
 th[data-marks~="config"], td.config { border-left: 4px solid var(--cp-control-line); }
 .records td:not(:empty) { background: var(--cp-part-fill); box-shadow: inset 0 0 0 1px var(--cp-part-line); }
+.records td[data-size="1"], p[data-role="sizes"] span[data-size="1"] { background: var(--cp-size-1); }
+.records td[data-size="2"], p[data-role="sizes"] span[data-size="2"] { background: var(--cp-size-2); }
+.records td[data-size="3"], p[data-role="sizes"] span[data-size="3"] { background: var(--cp-size-3); }
+p[data-role="sizes"] span { padding: 0 4px; box-shadow: inset 0 0 0 1px var(--cp-part-line); }
 .records [data-active] { box-shadow: inset 3px 0 0 var(--cp-active), inset -3px 0 0 var(--cp-active); font-weight: 700; }
 .records td[data-active]:not(:empty) { box-shadow: inset 0 0 0 3px var(--cp-active); }
 button { background: var(--cp-control-fill); color: var(--cp-control-text); border: 1px solid var(--cp-control-line); border-radius: 4px; font: inherit; padding: 2px 8px; }
@@ -376,12 +403,16 @@ export function historyHtml(records: HistoryRecord[], skipped: Skipped[]): strin
     const same = c.same.length === 0 ? "" : `<th data-same="${c.same.length}">${c.same.length} same records</th>`;
     return `<th data-record="${esc(c.record.name)}"${marks}><button type="button" aria-pressed="false">${esc(c.record.name)}</button>${words}</th>${same}`;
   });
+  const cell = (c: Column, id: string) => {
+    const { text, size } = c.cells.get(id) ?? { text: "", size: null };
+    return `<td${c.marks.includes("config") ? ' class="config"' : ""}${size === null ? "" : ` data-size="${size}"`}>${esc(text)}</td>`;
+  };
   const row = (id: string) =>
     `<tr data-part="${esc(id)}"><th>${esc(id)}</th>` +
-    columns
-      .map((c) => `<td${c.marks.includes("config") ? ' class="config"' : ""}>${esc(c.cells.get(id) ?? "")}</td>${c.same.length === 0 ? "" : "<td></td>"}`)
-      .join("") +
+    columns.map((c) => `${cell(c, id)}${c.same.length === 0 ? "" : "<td></td>"}`).join("") +
     `</tr>\n`;
+  const sized = columns.some((c) => [...c.cells.values()].some((v) => v.size !== null));
+  const sizes = ["0–9", "10–99", "100 or more"].map((span, i) => `<span data-size="${i + 1}">${span}</span>`).join(", ");
 
   return (
     `${HISTORY_MARK}\n<html lang="en">\n<head>\n<meta charset="utf-8">\n` +
@@ -391,6 +422,7 @@ export function historyHtml(records: HistoryRecord[], skipped: Skipped[]): strin
     `<div class="records">\n<table data-role="records">\n<tr><th>Part</th>${head.join("")}</tr>\n` +
     inTable.map(row).join("") +
     `</table>\n</div>\n` +
+    (sized ? `<p data-role="sizes">Fill by lines changed: ${sizes}.</p>\n` : "") +
     (notInTable.length === 0 ? "" : `${p(`Parts not in the table: ${notInTable.join(", ")}.`)}\n`) +
     columns
       .map((c) => `<section data-role="record" data-record="${esc(c.record.name)}" hidden>\n${recordBlocks(c).join("\n")}\n</section>\n`)
