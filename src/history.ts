@@ -307,8 +307,9 @@ main { padding: 16px; }
 p { margin: 0 0 4px; }
 h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
 .records { overflow-x: auto; margin: 12px 0; }
-table { border-collapse: separate; border-spacing: 0; border-top: 1px solid var(--cp-control-line); border-left: 1px solid var(--cp-control-line); }
+table { border-collapse: separate; border-spacing: 0; border-top: 1px solid var(--cp-control-line); }
 th, td { border-right: 1px solid var(--cp-control-line); border-bottom: 1px solid var(--cp-control-line); padding: 4px 8px; text-align: left; vertical-align: top; white-space: nowrap; font-weight: 400; }
+tr > :first-child { border-left: 1px solid var(--cp-control-line); }
 .records tr > :first-child { position: sticky; left: 0; background: var(--cp-bg); }
 .records th span { display: block; color: var(--cp-text-dim); }
 th[data-same] { color: var(--cp-text-dim); }
