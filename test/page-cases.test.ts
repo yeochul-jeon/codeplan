@@ -78,8 +78,9 @@ type Step =
       page: "new" | "rewrite" | "same" | "absent" | "untouched";
       block?: Expect;
       sameLayout?: boolean;
-      // Only part rectangles and zone frames equal the previous update's.
-      sameParts?: boolean;
+      // The sizes of the part rectangles equal the previous update's (lines
+      // can move the parts and widen the frames).
+      sameSizes?: boolean;
       // The written page equals the page after this earlier step (1-based).
       sameAs?: number;
     }
@@ -189,9 +190,10 @@ function runCase(c: Case): void {
       const block = expectPage(repo, pagePath);
       if (step.block) expectBlock(block, step.block);
       if (step.sameLayout) expect(block.layout).toEqual(lastLayout);
-      if (step.sameParts) {
-        const last = lastLayout as Block["layout"];
-        expect([block.layout.parts, block.layout.zones]).toEqual([last.parts, last.zones]);
+      if (step.sameSizes) {
+        const sizes = (l: Block["layout"]) => l.parts.map((p) => [p.id, p.w, p.h, p.label.w, p.label.h]);
+        expect(sizes(block.layout)).toEqual(sizes(lastLayout as Block["layout"]));
+        expect(block.layout.zones.map((z) => z.name)).toEqual((lastLayout as Block["layout"]).zones.map((z) => z.name));
       }
       if (step.sameAs !== undefined) expect(after.bytes).toBe(written[step.sameAs - 1]);
       lastLayout = block.layout;
@@ -477,7 +479,7 @@ const CASES: Case[] = [
     ],
   },
   {
-    name: "note and key order are kept; parts and zones stay",
+    name: "note and key order are kept; part sizes stay",
     steps: [
       { update: 0, page: "new", block: {} },
       {
@@ -503,7 +505,7 @@ const CASES: Case[] = [
       {
         update: 0,
         page: "rewrite",
-        sameParts: true,
+        sameSizes: true,
         block: {
           more: (b) => expect(Object.keys(b.plan)).toEqual(["note", "name", "format", "parts", "about", "externals", "scenarios"]),
         },
@@ -935,12 +937,12 @@ const CASES: Case[] = [
           externals: [{ id: "ledger", name: "Ledger", about: "" }],
         })),
       },
-      { update: 0, page: "rewrite", sameParts: true, block: { edges: [["cart", "ledger"], ["cart", "pay"]] } },
+      { update: 0, page: "rewrite", sameSizes: true, block: { edges: [["cart", "ledger"], ["cart", "pay"]] } },
       { check: 0 },
     ],
   },
   {
-    name: "adding relations, an external and scenarios leaves parts and zones",
+    name: "adding relations, an external and scenarios leaves part sizes",
     plan: JSON.stringify({
       format: 1, name: "mall", about: "",
       parts: [
@@ -973,7 +975,7 @@ const CASES: Case[] = [
         })),
       },
       {
-        update: 0, page: "rewrite", sameParts: true,
+        update: 0, page: "rewrite", sameSizes: true,
         block: { externals: [["ledger", 68]], edges: [["cart", "pay"], ["pay", "ledger"]], connectors: [["buy", 4]] },
       },
       { check: 1 },

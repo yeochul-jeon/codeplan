@@ -206,9 +206,13 @@ describe("layout on generated inputs", () => {
     } as unknown as Block;
     expectLayout(block);
     expect(layOut(inputs, externals, relations)).toEqual(layout);
-    // Parts and zones do not depend on externals, uses or scenarios.
+    // Part sizes do not depend on externals, uses or scenarios, and without
+    // lines neither do the places of parts and zones.
     const bare = layOut(inputs);
-    expect([bare.parts, bare.zones]).toEqual([layout.parts, layout.zones]);
+    const sizes = (l: typeof layout) => l.parts.map((p) => [p.id, p.w, p.h, p.label.w, p.label.h]);
+    expect(sizes(bare)).toEqual(sizes(layout));
+    const noLines = layOut(inputs, externals);
+    expect([noLines.parts, noLines.zones]).toEqual([bare.parts, bare.zones]);
   });
 
   test("part sizes right above the label box and for very large counts", () => {

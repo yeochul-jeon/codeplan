@@ -120,6 +120,139 @@ export function expectLine(points: [number, number][], from: Box, to: Box, rects
   expect(onSide(points.at(-1)!, to), `${what} end`).toBe(true);
 }
 
+// The rules lines keep among themselves. `g` is the least distance between
+// two lines that go the same way side by side.
+interface DrawnLine {
+  what: string;
+  kind: "edge" | "connector";
+  from: string;
+  to: string;
+  points: [number, number][];
+}
+const g = 8;
+
+export function drawnLines(layout: Block["layout"], plan: Block["plan"]): DrawnLine[] {
+  const lines: DrawnLine[] = layout.edges.map((e) => ({
+    what: `${e.from}->${e.to}`, kind: "edge", from: e.from, to: e.to, points: e.points,
+  }));
+  for (const c of layout.connectors) {
+    const steps = (plan.scenarios ?? []).find((s) => s.id === c.scenario)!.steps;
+    lines.push({
+      what: `${c.scenario}#${c.step}`, kind: "connector",
+      from: steps[c.step - 1]!.at, to: steps[c.step]!.at, points: c.points,
+    });
+  }
+  return lines;
+}
+
+// The stretches of `a` (as distances along it) where `b` runs together with
+// it, joined where they touch; and the first place two same-way pieces of
+// the two lines are closer than g without being at distance 0.
+export function together(a: [number, number][], b: [number, number][]): { runs: [number, number][]; near: string | null } {
+  const pieces: [number, number][] = [];
+  let near: string | null = null;
+  let along = 0;
+  for (let i = 1; i < a.length; i++) {
+    const [p, q] = [a[i - 1]!, a[i]!];
+    const axis = p[1] === q[1] ? 0 : 1;
+    const [lo, hi] = [Math.min(p[axis]!, q[axis]!), Math.max(p[axis]!, q[axis]!)];
+    for (let j = 1; j < b.length; j++) {
+      const [r, s] = [b[j - 1]!, b[j]!];
+      if ((r[1] === s[1] ? 0 : 1) !== axis) continue;
+      const from = Math.max(lo, Math.min(r[axis]!, s[axis]!));
+      const to = Math.min(hi, Math.max(r[axis]!, s[axis]!));
+      if (to - from < 1) continue;
+      const distance = Math.abs(p[1 - axis]! - r[1 - axis]!);
+      if (distance === 0) {
+        const [d1, d2] = [Math.abs(from - p[axis]!), Math.abs(to - p[axis]!)];
+        pieces.push([along + Math.min(d1, d2), along + Math.max(d1, d2)]);
+      } else if (distance < g) {
+        near ??= `pieces ${i} and ${j} are ${distance} apart`;
+      }
+    }
+    along += hi - lo;
+  }
+  pieces.sort((x, y) => x[0] - y[0]);
+  const runs: [number, number][] = [];
+  for (const piece of pieces) {
+    const last = runs.at(-1);
+    if (last && piece[0] <= last[1]) last[1] = Math.max(last[1], piece[1]);
+    else runs.push([piece[0], piece[1]]);
+  }
+  return { runs, near };
+}
+
+const lengthOf = (points: [number, number][]) =>
+  points.reduce((sum, p, i) => (i === 0 ? 0 : sum + Math.abs(p[0] - points[i - 1]![0]) + Math.abs(p[1] - points[i - 1]![1])), 0);
+
+// Every way the lines break the rules, as text; empty when they keep them.
+export function lineFaults(lines: DrawnLine[], rects: (Box & { id: string })[]): string[] {
+  const faults: string[] = [];
+  const lengths = lines.map((l) => lengthOf(l.points));
+  for (let i = 0; i < lines.length; i++) {
+    for (let j = i + 1; j < lines.length; j++) {
+      const [a, b] = [lines[i]!, lines[j]!];
+      const pair = `${a.what} / ${b.what}`;
+      const seenFromA = together(a.points, b.points);
+      if (seenFromA.near !== null) faults.push(`N ${pair}: ${seenFromA.near}`);
+      if (seenFromA.runs.length === 0) continue;
+      const seenFromB = together(b.points, a.points);
+      if (a.kind !== b.kind) {
+        faults.push(`T ${pair}: lines of two kinds run together`);
+        continue;
+      }
+      if (a.from === b.from && a.to === b.to) {
+        if (JSON.stringify(a.points) !== JSON.stringify(b.points)) faults.push(`T ${pair}: same ends, other points`);
+        continue;
+      }
+      const one = seenFromA.runs.length === 1 && seenFromB.runs.length === 1;
+      const [ra, rb] = [seenFromA.runs[0]!, seenFromB.runs[0]!];
+      const atEnd = a.to === b.to && one && ra[1] === lengths[i] && rb[1] === lengths[j];
+      const atStart = a.from === b.from && one && ra[0] === 0 && rb[0] === 0;
+      if (!atEnd && !atStart) faults.push(`T ${pair}: run together at ${JSON.stringify(seenFromA.runs)}`);
+    }
+  }
+
+  // Ends on one side of a rectangle.
+  const ends = lines.flatMap((l, i) => [
+    { line: i, rect: l.from, first: true, at: l.points[0]! },
+    { line: i, rect: l.to, first: false, at: l.points.at(-1)! },
+  ]);
+  const byId = new Map(rects.map((r) => [r.id, r]));
+  const sidesOf = ([x, y]: [number, number], r: Box) =>
+    [x === r.x && "left", x === r.x + r.w && "right", y === r.y && "top", y === r.y + r.h && "bottom"].filter(Boolean);
+  for (let i = 0; i < ends.length; i++) {
+    for (let j = i + 1; j < ends.length; j++) {
+      const [a, b] = [ends[i]!, ends[j]!];
+      if (a.rect !== b.rect || a.line === b.line) continue;
+      const r = byId.get(a.rect)!;
+      if (!sidesOf(a.at, r).some((side) => sidesOf(b.at, r).includes(side))) continue;
+      const distance = Math.abs(a.at[0] - b.at[0]) + Math.abs(a.at[1] - b.at[1]);
+      const same = lines[a.line]!.kind === lines[b.line]!.kind && a.first === b.first;
+      if (distance === 0 ? !same : distance < g) {
+        faults.push(`E ${lines[a.line]!.what} / ${lines[b.line]!.what} on ${a.rect}: ends ${distance} apart`);
+      }
+    }
+  }
+
+  // No piece of a line goes along a side of a rectangle.
+  for (const l of lines) {
+    for (let i = 1; i < l.points.length; i++) {
+      const [p, q] = [l.points[i - 1]!, l.points[i]!];
+      for (const r of rects) {
+        const onSideLine =
+          p[1] === q[1]
+            ? (p[1] === r.y || p[1] === r.y + r.h) &&
+              Math.min(Math.max(p[0], q[0]), r.x + r.w) - Math.max(Math.min(p[0], q[0]), r.x) >= 1
+            : (p[0] === r.x || p[0] === r.x + r.w) &&
+              Math.min(Math.max(p[1], q[1]), r.y + r.h) - Math.max(Math.min(p[1], q[1]), r.y) >= 1;
+        if (onSideLine) faults.push(`S ${l.what}: piece ${i} goes along a side of ${r.id}`);
+      }
+    }
+  }
+  return faults;
+}
+
 // Every rule the layout must keep, for a block whose plan has no errors.
 export function expectLayout(block: Block): void {
   const { layout, plan, measure } = block;
@@ -193,6 +326,8 @@ export function expectLayout(block: Block): void {
     if (seenPair.has(key)) expect(JSON.stringify(c.points)).toBe(seenPair.get(key));
     seenPair.set(key, JSON.stringify(c.points));
   }
+
+  expect(lineFaults(drawnLines(layout, plan), boxes).slice(0, 5)).toEqual([]);
 
   layout.parts.forEach((p, i) => {
     const m = measure.parts[i]!;

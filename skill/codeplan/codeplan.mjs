@@ -3038,7 +3038,7 @@ function partSize(a, lines) {
   if ((w * h) ** 2 > 25e4 * lines) throw new Error(`no part size for ${a} and ${lines} lines`);
   return { w, h };
 }
-function packRows(blocks, width) {
+function packRows(blocks, width, setLevel) {
   const rows = [];
   for (const block of blocks) {
     const row = rows.at(-1);
@@ -3046,12 +3046,13 @@ function packRows(blocks, width) {
       row.blocks.push(block);
       row.w += GAP + block.w;
       row.h = Math.max(row.h, block.h);
+      row.ends += block.ends.length;
     } else {
-      rows.push({ blocks: [block], w: block.w, h: block.h });
+      rows.push({ blocks: [block], w: block.w, h: block.h, ends: block.ends.length });
     }
   }
   const w = Math.max(0, ...rows.map((r) => r.w));
-  const h = rows.reduce((sum, r, i) => sum + r.h + (i > 0 ? GAP : 0), 0);
+  const h = rows.reduce((sum, r, i) => sum + r.h + GAP * r.ends + (i > 0 ? GAP : 0), 0);
   return {
     w,
     h,
@@ -3059,11 +3060,15 @@ function packRows(blocks, width) {
       let top = y;
       for (const row of rows) {
         let left = x;
+        const down = [];
         for (const block of row.blocks) {
           block.place(left, top);
+          for (const end of block.ends) down.push({ end, x: block.downAt(end) });
           left += block.w + GAP;
         }
-        top += row.h + GAP;
+        down.sort((a, b) => b.x - a.x);
+        down.forEach((d, k) => setLevel(d.end, top + row.h + GAP * (k + 1)));
+        top += row.h + GAP * (row.ends + 1);
       }
     }
   };
@@ -3081,34 +3086,70 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
   if (inputs.length === 0 && externalInputs.length === 0) {
     return { width: 1, height: 1, zones: [], parts: [], externals: [], edges: [], connectors: [] };
   }
+  const lines = [
+    ...relations.edges.map((e) => ({ from: e.from, to: e.to, kind: 0 })),
+    ...relations.connectors.map((c) => ({ from: c.from, to: c.to, kind: 1 }))
+  ];
+  const ends = [];
+  const endsOf = /* @__PURE__ */ new Map();
+  const endOf = (id, kind, out) => {
+    const order = 2 * kind + (out ? 0 : 1);
+    const list2 = endsOf.get(id) ?? [];
+    endsOf.set(id, list2);
+    let end = list2.find((e) => e.order === order);
+    if (!end) {
+      end = { order, x: 0, bottom: 0, innerLevel: null, column: null, level: 0, marginColumn: null };
+      list2.push(end);
+      list2.sort((a, b) => a.order - b.order);
+      ends.push(end);
+    }
+    return end;
+  };
+  const drawn = lines.map((l) => ({ out: endOf(l.from, l.kind, true), in: endOf(l.to, l.kind, false) }));
   const parts = inputs.map((p2) => {
     const a = labelWidth(p2);
     const { w, h } = partSize(a, p2.lines);
     return { id: p2.id, x: 0, y: 0, w, h, label: { x: 0, y: 0, w: a, h: LABEL_HEIGHT } };
   });
-  const partBlock = (part) => ({
-    w: part.w,
-    h: part.h,
-    place(x, y) {
-      part.x = x;
-      part.y = y;
-      part.label.x = x;
-      part.label.y = y;
-    }
-  });
+  const rectBlock = (rect) => {
+    const own = endsOf.get(rect.id) ?? [];
+    return {
+      w: rect.w,
+      h: rect.h,
+      ends: own,
+      place(x, y) {
+        rect.x = x;
+        rect.y = y;
+        rect.label.x = x;
+        rect.label.y = y;
+        own.forEach((end, i) => {
+          end.x = x + Math.floor((i + 1) * rect.w / (own.length + 1));
+          end.bottom = y + rect.h;
+        });
+      },
+      downAt: (end) => end.x
+    };
+  };
+  const setLevel = (end, y) => {
+    end.level = y;
+  };
   const zoneNames = [...new Set(inputs.map((p2) => p2.zone ?? "").filter((z) => z !== ""))].sort(byCodeUnit);
   const zones = [];
   const blocks = [];
   for (const name of zoneNames) {
-    const members = parts.filter((_, i) => inputs[i].zone === name).map(partBlock);
-    const inner = packRows(members, rowWidth(members));
+    const members = parts.filter((_, i) => inputs[i].zone === name).map(rectBlock);
+    const own = members.flatMap((m) => m.ends);
+    const inner = packRows(members, rowWidth(members), (end, y) => {
+      end.innerLevel = y;
+    });
     const tw = titleWidth(name);
     const zone = {
       name,
       x: 0,
       y: 0,
-      // Side margins GAP; parts start below the title box and a GAP.
-      w: Math.max(inner.w, tw) + 2 * GAP,
+      // Side margins GAP, and on the right a column for each end; parts
+      // start below the title box and a GAP.
+      w: Math.max(inner.w + GAP * own.length, tw) + 2 * GAP,
       h: TITLE_HEIGHT + GAP + inner.h + GAP,
       title: { x: 0, y: 0, w: tw, h: TITLE_HEIGHT }
     };
@@ -3116,20 +3157,25 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
     blocks.push({
       w: zone.w,
       h: zone.h,
+      ends: own,
       place(x, y) {
         zone.x = x;
         zone.y = y;
         zone.title.x = x + GAP;
         zone.title.y = y;
         inner.place(x + GAP, y + TITLE_HEIGHT + GAP);
-      }
+        [...own].sort((a, b) => a.innerLevel - b.innerLevel).forEach((end, k) => {
+          end.column = x + GAP + inner.w + GAP * (own.length - k);
+        });
+      },
+      downAt: (end) => end.column
     });
   }
   parts.forEach((part, i) => {
     const zone = inputs[i].zone ?? "";
-    if (zone === "") blocks.push(partBlock(part));
+    if (zone === "") blocks.push(rectBlock(part));
   });
-  const all = packRows(blocks, blocks.length > 0 ? rowWidth(blocks) : 0);
+  const all = packRows(blocks, blocks.length > 0 ? rowWidth(blocks) : 0, setLevel);
   all.place(MARGIN, MARGIN);
   const externals = externalInputs.map((e) => {
     const w = externalWidth(e);
@@ -3138,209 +3184,50 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
   let contentW = all.w;
   let contentH = all.h;
   if (externals.length > 0) {
-    const extBlocks = externals.map(partBlock);
-    const rows = packRows(extBlocks, Math.max(all.w, rowWidth(extBlocks)));
+    const extBlocks = externals.map(rectBlock);
+    const rows = packRows(extBlocks, Math.max(all.w, rowWidth(extBlocks)), setLevel);
     const top = blocks.length > 0 ? all.h + GAP : 0;
     rows.place(MARGIN, MARGIN + top);
     contentW = Math.max(all.w, rows.w);
     contentH = top + rows.h;
   }
-  let width = contentW + 2 * MARGIN;
+  const columnOf = /* @__PURE__ */ new Map();
+  for (; ; ) {
+    const count2 = /* @__PURE__ */ new Map();
+    for (const line of drawn) {
+      if (columnOf.has(line)) continue;
+      count2.set(line.out, (count2.get(line.out) ?? 0) + 1);
+      count2.set(line.in, (count2.get(line.in) ?? 0) + 1);
+    }
+    let pick = null;
+    for (const end of ends) {
+      if ((count2.get(end) ?? 0) > (pick === null ? 0 : count2.get(pick))) pick = end;
+    }
+    if (pick === null) break;
+    for (const line of drawn) {
+      if (!columnOf.has(line) && (line.out === pick || line.in === pick)) columnOf.set(line, pick);
+    }
+  }
+  const withColumn = ends.filter((end) => [...columnOf.values()].includes(end));
+  withColumn.forEach((end, k) => {
+    end.marginColumn = MARGIN + contentW + GAP * (k + 1);
+  });
+  let width = contentW + GAP * withColumn.length + 2 * MARGIN;
   let height = contentH + 2 * MARGIN;
   if (width > RATIO * height) height = Math.ceil(width / RATIO);
   if (height > RATIO * width) width = Math.ceil(height / RATIO);
-  const placeOf = new Map([...parts, ...externals].map((r) => [r.id, r]));
-  let router = null;
-  const routes = /* @__PURE__ */ new Map();
-  const route = (from, to) => {
-    const key = JSON.stringify([from, to]);
-    let points = routes.get(key);
-    if (!points) {
-      router ??= makeRouter([...parts, ...externals]);
-      points = router(placeOf.get(from), placeOf.get(to));
-      routes.set(key, points);
-    }
-    return points.map((p2) => [p2[0], p2[1]]);
-  };
-  const edges = relations.edges.map((e) => ({ from: e.from, to: e.to, points: route(e.from, e.to) }));
-  const connectors = relations.connectors.map((c) => ({
+  const wayOf = (end) => end.column === null ? [[end.x, end.bottom], [end.x, end.level]] : [[end.x, end.bottom], [end.x, end.innerLevel], [end.column, end.innerLevel], [end.column, end.level]];
+  const points = drawn.map((line) => {
+    const x = columnOf.get(line).marginColumn;
+    return [...wayOf(line.out), [x, line.out.level], [x, line.in.level], ...wayOf(line.in).reverse()];
+  });
+  const edges = relations.edges.map((e, i) => ({ from: e.from, to: e.to, points: points[i] }));
+  const connectors = relations.connectors.map((c, i) => ({
     scenario: c.scenario,
     step: c.step,
-    points: route(c.from, c.to)
+    points: points[relations.edges.length + i]
   }));
   return { width, height, zones, parts, externals, edges, connectors };
-}
-var PAD = 4;
-var BEND = 24;
-function makeRouter(rects) {
-  const padded = rects.map((r) => ({ l: r.x - PAD, r: r.x + r.w + PAD, t: r.y - PAD, b: r.y + r.h + PAD }));
-  const xs = [...new Set(padded.flatMap((p2) => [p2.l, p2.r]))].sort((a, b) => a - b);
-  const ys = [...new Set(padded.flatMap((p2) => [p2.t, p2.b]))].sort((a, b) => a - b);
-  const nx = xs.length;
-  const ny = ys.length;
-  const xi = new Map(xs.map((x, i) => [x, i]));
-  const yi = new Map(ys.map((y, j) => [y, j]));
-  const blockedH = new Uint8Array(nx * ny);
-  const blockedV = new Uint8Array(nx * ny);
-  for (const p2 of padded) {
-    const [l, r, t, b] = [xi.get(p2.l), xi.get(p2.r), yi.get(p2.t), yi.get(p2.b)];
-    for (let j = t + 1; j < b; j++) for (let i = l; i < r; i++) blockedH[j * nx + i] = 1;
-    for (let j = t; j < b; j++) for (let i = l + 1; i < r; i++) blockedV[j * nx + i] = 1;
-  }
-  const states = nx * ny * 4;
-  const dist = new Float64Array(states);
-  const prev = new Int32Array(states);
-  const seen = new Int32Array(states);
-  let search = 0;
-  let heapF = new Float64Array(1024);
-  let heapS = new Int32Array(1024);
-  let size = 0;
-  const push = (f, s) => {
-    if (size === heapF.length) {
-      const f2 = new Float64Array(size * 2);
-      f2.set(heapF);
-      heapF = f2;
-      const s2 = new Int32Array(size * 2);
-      s2.set(heapS);
-      heapS = s2;
-    }
-    let i = size++;
-    while (i > 0) {
-      const parent = i - 1 >> 1;
-      if (heapF[parent] < f || heapF[parent] === f && heapS[parent] <= s) break;
-      heapF[i] = heapF[parent];
-      heapS[i] = heapS[parent];
-      i = parent;
-    }
-    heapF[i] = f;
-    heapS[i] = s;
-  };
-  const pop = () => {
-    const top = heapS[0];
-    size--;
-    if (size > 0) {
-      const f = heapF[size];
-      const s = heapS[size];
-      let i = 0;
-      for (; ; ) {
-        const l = 2 * i + 1;
-        if (l >= size) break;
-        const r = l + 1;
-        const c = r < size && (heapF[r] < heapF[l] || heapF[r] === heapF[l] && heapS[r] < heapS[l]) ? r : l;
-        if (heapF[c] > f || heapF[c] === f && heapS[c] >= s) break;
-        heapF[i] = heapF[c];
-        heapS[i] = heapS[c];
-        i = c;
-      }
-      heapF[i] = f;
-      heapS[i] = s;
-    }
-    return top;
-  };
-  const step = [
-    [1, 0],
-    [0, 1],
-    [-1, 0],
-    [0, -1]
-  ];
-  const ports = (r) => {
-    const p2 = { l: r.x - PAD, r: r.x + r.w + PAD, t: r.y - PAD, b: r.y + r.h + PAD };
-    const cx = r.x + Math.floor(r.w / 2);
-    const cy = r.y + Math.floor(r.h / 2);
-    return [
-      { side: [r.x + r.w, cy], out: [p2.r, cy], corner: [p2.r, p2.t], dir: 3 },
-      { side: [r.x + r.w, cy], out: [p2.r, cy], corner: [p2.r, p2.b], dir: 1 },
-      { side: [cx, r.y + r.h], out: [cx, p2.b], corner: [p2.r, p2.b], dir: 0 },
-      { side: [cx, r.y + r.h], out: [cx, p2.b], corner: [p2.l, p2.b], dir: 2 },
-      { side: [r.x, cy], out: [p2.l, cy], corner: [p2.l, p2.b], dir: 1 },
-      { side: [r.x, cy], out: [p2.l, cy], corner: [p2.l, p2.t], dir: 3 },
-      { side: [cx, r.y], out: [cx, p2.t], corner: [p2.l, p2.t], dir: 2 },
-      { side: [cx, r.y], out: [cx, p2.t], corner: [p2.r, p2.t], dir: 0 }
-    ];
-  };
-  const along = (q) => PAD + Math.abs(q.corner[0] - q.out[0]) + Math.abs(q.corner[1] - q.out[1]);
-  const nodeOf = (p2) => yi.get(p2[1]) * nx + xi.get(p2[0]);
-  return (a, b) => {
-    search++;
-    size = 0;
-    const goalBox = { l: b.x - PAD, r: b.x + b.w + PAD, t: b.y - PAD, b: b.y + b.h + PAD };
-    const h = (n) => {
-      const x = xs[n % nx];
-      const y = ys[Math.floor(n / nx)];
-      return Math.max(0, goalBox.l - x, x - goalBox.r) + Math.max(0, goalBox.t - y, y - goalBox.b);
-    };
-    const visit = (s2, g, from) => {
-      if (seen[s2] === search && dist[s2] <= g) return;
-      seen[s2] = search;
-      dist[s2] = g;
-      prev[s2] = from;
-      push(g + h(s2 >> 2), s2);
-    };
-    const starts = ports(a);
-    starts.forEach((q, k) => visit(nodeOf(q.corner) * 4 + q.dir, along(q), -2 - k));
-    const finishes = /* @__PURE__ */ new Map();
-    for (const q of ports(b)) {
-      const n = nodeOf(q.corner);
-      const cost = along(q) + BEND;
-      if (!finishes.has(n) || finishes.get(n).cost > cost) finishes.set(n, { cost, port: q });
-    }
-    let best = Infinity;
-    let bestState = -1;
-    while (size > 0) {
-      const top = heapF[0];
-      if (top >= best) break;
-      const s2 = pop();
-      const g = dist[s2];
-      if (g + h(s2 >> 2) > top) continue;
-      const n = s2 >> 2;
-      const finish2 = finishes.get(n);
-      if (finish2 && g + finish2.cost < best) {
-        best = g + finish2.cost;
-        bestState = s2;
-      }
-      const dir = s2 & 3;
-      const i = n % nx;
-      const j = (n - i) / nx;
-      for (let nd = 0; nd < 4; nd++) {
-        if (nd === (dir + 2) % 4) continue;
-        const [dx, dy] = step[nd];
-        const ni = i + dx;
-        const nj = j + dy;
-        if (ni < 0 || nj < 0 || ni >= nx || nj >= ny) continue;
-        if (dx !== 0 ? blockedH[j * nx + Math.min(i, ni)] : blockedV[Math.min(j, nj) * nx + i]) continue;
-        const len = Math.abs(xs[ni] - xs[i]) + Math.abs(ys[nj] - ys[j]);
-        visit((nj * nx + ni) * 4 + nd, g + len + (nd === dir ? 0 : BEND), s2);
-      }
-    }
-    if (bestState < 0) throw new Error("no route between two rectangles");
-    const finish = finishes.get(bestState >> 2).port;
-    const path = [finish.side, finish.out];
-    let s = bestState;
-    for (; ; ) {
-      const n = s >> 2;
-      const i = n % nx;
-      path.push([xs[i], ys[(n - i) / nx]]);
-      const p2 = prev[s];
-      if (p2 <= -2) {
-        const q = starts[-2 - p2];
-        path.push(q.out, q.side);
-        break;
-      }
-      s = p2;
-    }
-    path.reverse();
-    const out = [];
-    for (const p2 of path) {
-      const last = out.at(-1);
-      if (last && last[0] === p2[0] && last[1] === p2[1]) continue;
-      if (out.length >= 2) {
-        const q = out.at(-2);
-        if (q[0] === last[0] && last[0] === p2[0] || q[1] === last[1] && last[1] === p2[1]) out.pop();
-      }
-      out.push(p2);
-    }
-    return out;
-  };
 }
 
 // src/cli.ts

@@ -27,9 +27,38 @@ and `check` refuse to touch it.
   then a line with the number of orphans and a line with the number of
   unwatched files when there are any.
 
-The layout comes from the parts' ids, names, zones, counts and order alone,
-so changing `uses`, externals, scenarios or tasks does not move a part. Text from
-the plan file is always shown as text, never as HTML.
+The size of a part's rectangle comes from the part's id, name, zone and
+counts alone. Where the rectangles are also comes from the order of the
+parts and, when the plan draws lines, from its `uses`, externals and
+scenarios: the gaps between the rectangles open to make room for the lines,
+and the zone frames grow with them. So changing `uses`, externals or
+scenarios can move a part but does not change its size; changing tasks
+moves nothing. Text from the plan file is always shown as text, never as
+HTML.
+
+## Lines
+
+The lines keep these rules, so that each one can be followed from its start
+to its finish:
+
+- Every line starts and finishes on the bottom side of a rectangle. It does
+  not go through a rectangle or along a side of one. It may cross a zone
+  frame.
+- Two lines run together only when both are use lines or both are
+  connectors, and they start at the same rectangle or finish at the same
+  rectangle. Lines that start at one rectangle run together from their
+  first point until they separate. Lines that finish at one rectangle run
+  together from the point where they meet to their last point. One line can
+  run together with a line at its start and with another line at its
+  finish.
+- After two lines separate they do not run together again.
+- A use line and a connector never run together. The two lines of parts
+  that use each other never run together. Two connectors between the same
+  two places, in the same direction, have the same points.
+- Where two other lines go the same way they are 8 or more apart. They may
+  cross or touch at one point.
+- On a rectangle, the ends of lines are 8 or more apart, except the ends of
+  lines that run together there.
 
 ## Tasks
 

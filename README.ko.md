@@ -157,6 +157,8 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
 - `draft`는 설정 파일의 `roots`를 glob이 아니라 일반 경로로만 읽습니다.
 - page는 밖에서 아무것도 불러오지 않고 절대 경로나 시간이 들어 있지
   않습니다.
+- 새 `codeplan.mjs`가 선을 다른 방법으로 놓으면, 선을 그리는 계획의 page를
+  `check`가 한 번 outdated로 알립니다. `update`를 돌리십시오.
 
 ## codeplan 개발
 

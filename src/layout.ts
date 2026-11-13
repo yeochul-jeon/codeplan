@@ -1,7 +1,8 @@
 // The plane layout written into the page: a rectangle for each part, sized
 // by its line count, and a frame for each zone around its parts. Blocks
 // (zone frames, and parts without a zone) are packed in rows; parts inside a
-// frame are packed in rows the same way.
+// frame are packed in rows the same way. Lines get places of their own in
+// the gaps below the rows, which open as far as the lines need.
 import { byCodeUnit } from "./measure.js";
 
 export interface Box {
@@ -81,29 +82,65 @@ export function partSize(a: number, lines: number): { w: number; h: number } {
   return { w, h };
 }
 
+// Where the lines of one kind leave a rectangle, or come into it: a point
+// on its bottom side. Every line that starts at an out end (or finishes at
+// an in end) goes the same way between the end and the right margin, so
+// those lines run together there and nowhere else. The way is a drop to a
+// level in the gap below the rectangle's row; for a part in a zone, along
+// that level to a column in the zone's right margin and down it to a level
+// in the gap below the zone's row; then along the level to the right margin.
+// No two ends have the same level in one gap or the same column in one
+// margin, so lines of different ends only cross or touch at one point.
+interface End {
+  // Kind and direction in a fixed order: edges out, edges in, connectors
+  // out, connectors in.
+  order: number;
+  x: number;
+  bottom: number;
+  // In a zone: the level below the part's row and the column in the frame.
+  innerLevel: number | null;
+  column: number | null;
+  level: number;
+  // The column in the right margin, for the ends that have one.
+  marginColumn: number | null;
+}
+
 interface Block {
   w: number;
   h: number;
+  // The ends that come down out of the block's bottom.
+  ends: End[];
   // Places the block's contents with its top-left corner at (x, y).
   place(x: number, y: number): void;
+  // After place: the x where each end comes down.
+  downAt(end: End): number;
 }
 
 // Packs blocks left to right in rows no wider than `width` (a block wider
-// than that gets a row of its own), GAP apart in both directions.
-function packRows(blocks: Block[], width: number): { w: number; h: number; place(x: number, y: number): void } {
-  const rows: { blocks: Block[]; w: number; h: number }[] = [];
+// than that gets a row of its own), GAP apart sideways. Below each row the
+// gap holds one level for each end of the row, GAP apart, and `setLevel`
+// gets each: the end that comes down furthest right has the level nearest
+// the row, so a drop never crosses a level of its own row. The height
+// counts the levels below the last row but no gap after them.
+function packRows(
+  blocks: Block[],
+  width: number,
+  setLevel: (end: End, y: number) => void,
+): { w: number; h: number; place(x: number, y: number): void } {
+  const rows: { blocks: Block[]; w: number; h: number; ends: number }[] = [];
   for (const block of blocks) {
     const row = rows.at(-1);
     if (row && row.w + GAP + block.w <= width) {
       row.blocks.push(block);
       row.w += GAP + block.w;
       row.h = Math.max(row.h, block.h);
+      row.ends += block.ends.length;
     } else {
-      rows.push({ blocks: [block], w: block.w, h: block.h });
+      rows.push({ blocks: [block], w: block.w, h: block.h, ends: block.ends.length });
     }
   }
   const w = Math.max(0, ...rows.map((r) => r.w));
-  const h = rows.reduce((sum, r, i) => sum + r.h + (i > 0 ? GAP : 0), 0);
+  const h = rows.reduce((sum, r, i) => sum + r.h + GAP * r.ends + (i > 0 ? GAP : 0), 0);
   return {
     w,
     h,
@@ -111,11 +148,15 @@ function packRows(blocks: Block[], width: number): { w: number; h: number; place
       let top = y;
       for (const row of rows) {
         let left = x;
+        const down: { end: End; x: number }[] = [];
         for (const block of row.blocks) {
           block.place(left, top);
+          for (const end of block.ends) down.push({ end, x: block.downAt(end) });
           left += block.w + GAP;
         }
-        top += row.h + GAP;
+        down.sort((a, b) => b.x - a.x);
+        down.forEach((d, k) => setLevel(d.end, top + row.h + GAP * (k + 1)));
+        top += row.h + GAP * (row.ends + 1);
       }
     },
   };
@@ -144,9 +185,10 @@ export function externalWidth(e: ExternalInput): number {
   return Math.min(LABEL_CAP, Math.max(textWidth(e.name === "" ? e.id : e.name), textWidth("external")) + 12);
 }
 
-// Parts and zone frames come from the parts alone; externals go in rows
-// below them; then edges and connectors are routed around every part and
-// external rectangle.
+// Part sizes come from the parts alone. Zone frames and the places of all
+// rectangles also make room for the lines: externals go in rows below the
+// parts, and every gap is as wide as the lines in it need. Without lines
+// the gaps are GAP wide everywhere.
 export function layOut(
   inputs: PartInput[],
   externalInputs: ExternalInput[] = [],
@@ -156,35 +198,74 @@ export function layOut(
     return { width: 1, height: 1, zones: [], parts: [], externals: [], edges: [], connectors: [] };
   }
 
+  // The ends the lines need, in the order the lines first name them.
+  const lines = [
+    ...relations.edges.map((e) => ({ from: e.from, to: e.to, kind: 0 })),
+    ...relations.connectors.map((c) => ({ from: c.from, to: c.to, kind: 1 })),
+  ];
+  const ends: End[] = [];
+  const endsOf = new Map<string, End[]>();
+  const endOf = (id: string, kind: number, out: boolean): End => {
+    const order = 2 * kind + (out ? 0 : 1);
+    const list = endsOf.get(id) ?? [];
+    endsOf.set(id, list);
+    let end = list.find((e) => e.order === order);
+    if (!end) {
+      end = { order, x: 0, bottom: 0, innerLevel: null, column: null, level: 0, marginColumn: null };
+      list.push(end);
+      list.sort((a, b) => a.order - b.order);
+      ends.push(end);
+    }
+    return end;
+  };
+  const drawn = lines.map((l) => ({ out: endOf(l.from, l.kind, true), in: endOf(l.to, l.kind, false) }));
+
   const parts: LayoutPart[] = inputs.map((p) => {
     const a = labelWidth(p);
     const { w, h } = partSize(a, p.lines);
     return { id: p.id, x: 0, y: 0, w, h, label: { x: 0, y: 0, w: a, h: LABEL_HEIGHT } };
   });
-  const partBlock = (part: LayoutPart): Block => ({
-    w: part.w,
-    h: part.h,
-    place(x, y) {
-      part.x = x;
-      part.y = y;
-      part.label.x = x;
-      part.label.y = y;
-    },
-  });
+  // A rectangle's ends sit on its bottom side, evenly apart.
+  const rectBlock = (rect: LayoutPart): Block => {
+    const own = endsOf.get(rect.id) ?? [];
+    return {
+      w: rect.w,
+      h: rect.h,
+      ends: own,
+      place(x, y) {
+        rect.x = x;
+        rect.y = y;
+        rect.label.x = x;
+        rect.label.y = y;
+        own.forEach((end, i) => {
+          end.x = x + Math.floor(((i + 1) * rect.w) / (own.length + 1));
+          end.bottom = y + rect.h;
+        });
+      },
+      downAt: (end) => end.x,
+    };
+  };
+  const setLevel = (end: End, y: number) => {
+    end.level = y;
+  };
 
   const zoneNames = [...new Set(inputs.map((p) => p.zone ?? "").filter((z) => z !== ""))].sort(byCodeUnit);
   const zones: LayoutZone[] = [];
   const blocks: Block[] = [];
   for (const name of zoneNames) {
-    const members = parts.filter((_, i) => inputs[i]!.zone === name).map(partBlock);
-    const inner = packRows(members, rowWidth(members));
+    const members = parts.filter((_, i) => inputs[i]!.zone === name).map(rectBlock);
+    const own = members.flatMap((m) => m.ends);
+    const inner = packRows(members, rowWidth(members), (end, y) => {
+      end.innerLevel = y;
+    });
     const tw = titleWidth(name);
     const zone: LayoutZone = {
       name,
       x: 0,
       y: 0,
-      // Side margins GAP; parts start below the title box and a GAP.
-      w: Math.max(inner.w, tw) + 2 * GAP,
+      // Side margins GAP, and on the right a column for each end; parts
+      // start below the title box and a GAP.
+      w: Math.max(inner.w + GAP * own.length, tw) + 2 * GAP,
       h: TITLE_HEIGHT + GAP + inner.h + GAP,
       title: { x: 0, y: 0, w: tw, h: TITLE_HEIGHT },
     };
@@ -192,25 +273,35 @@ export function layOut(
     blocks.push({
       w: zone.w,
       h: zone.h,
+      ends: own,
       place(x, y) {
         zone.x = x;
         zone.y = y;
         zone.title.x = x + GAP;
         zone.title.y = y;
         inner.place(x + GAP, y + TITLE_HEIGHT + GAP);
+        // The end with the highest level has the column furthest right, so
+        // a level never crosses a column of its own zone.
+        [...own]
+          .sort((a, b) => a.innerLevel! - b.innerLevel!)
+          .forEach((end, k) => {
+            end.column = x + GAP + inner.w + GAP * (own.length - k);
+          });
       },
+      downAt: (end) => end.column!,
     });
   }
   parts.forEach((part, i) => {
     const zone = inputs[i]!.zone ?? "";
-    if (zone === "") blocks.push(partBlock(part));
+    if (zone === "") blocks.push(rectBlock(part));
   });
 
-  const all = packRows(blocks, blocks.length > 0 ? rowWidth(blocks) : 0);
+  const all = packRows(blocks, blocks.length > 0 ? rowWidth(blocks) : 0, setLevel);
   all.place(MARGIN, MARGIN);
 
   // Externals: in plan order, in rows starting a GAP below every part and
-  // frame, no wider than the parts above (or than they need on their own).
+  // frame and the levels below them, no wider than the parts above (or than
+  // they need on their own).
   const externals: LayoutPart[] = externalInputs.map((e) => {
     const w = externalWidth(e);
     return { id: e.id, x: 0, y: 0, w, h: EXTERNAL_HEIGHT, label: { x: 0, y: 0, w, h: EXTERNAL_HEIGHT } };
@@ -218,241 +309,62 @@ export function layOut(
   let contentW = all.w;
   let contentH = all.h;
   if (externals.length > 0) {
-    const extBlocks = externals.map(partBlock);
-    const rows = packRows(extBlocks, Math.max(all.w, rowWidth(extBlocks)));
+    const extBlocks = externals.map(rectBlock);
+    const rows = packRows(extBlocks, Math.max(all.w, rowWidth(extBlocks)), setLevel);
     const top = blocks.length > 0 ? all.h + GAP : 0;
     rows.place(MARGIN, MARGIN + top);
     contentW = Math.max(all.w, rows.w);
     contentH = top + rows.h;
   }
 
-  let width = contentW + 2 * MARGIN;
+  // A line goes from its out end to the right margin, up or down a column
+  // there, and back to its in end. The column belongs to one of the two
+  // ends, and each line of that end takes it. The ends that get a column
+  // are picked one at a time: the end with the most lines still without
+  // one, the first such end when several have as many.
+  const columnOf = new Map<(typeof drawn)[number], End>();
+  for (;;) {
+    const count = new Map<End, number>();
+    for (const line of drawn) {
+      if (columnOf.has(line)) continue;
+      count.set(line.out, (count.get(line.out) ?? 0) + 1);
+      count.set(line.in, (count.get(line.in) ?? 0) + 1);
+    }
+    let pick: End | null = null;
+    for (const end of ends) {
+      if ((count.get(end) ?? 0) > (pick === null ? 0 : count.get(pick)!)) pick = end;
+    }
+    if (pick === null) break;
+    for (const line of drawn) {
+      if (!columnOf.has(line) && (line.out === pick || line.in === pick)) columnOf.set(line, pick);
+    }
+  }
+  const withColumn = ends.filter((end) => [...columnOf.values()].includes(end));
+  withColumn.forEach((end, k) => {
+    end.marginColumn = MARGIN + contentW + GAP * (k + 1);
+  });
+
+  let width = contentW + GAP * withColumn.length + 2 * MARGIN;
   let height = contentH + 2 * MARGIN;
   if (width > RATIO * height) height = Math.ceil(width / RATIO);
   if (height > RATIO * width) width = Math.ceil(height / RATIO);
 
-  // Routes are computed only when there are lines, once for each pair.
-  const placeOf = new Map<string, Box>([...parts, ...externals].map((r) => [r.id, r]));
-  let router: ((a: Box, b: Box) => Point[]) | null = null;
-  const routes = new Map<string, Point[]>();
-  const route = (from: string, to: string): Point[] => {
-    const key = JSON.stringify([from, to]);
-    let points = routes.get(key);
-    if (!points) {
-      router ??= makeRouter([...parts, ...externals]);
-      points = router(placeOf.get(from)!, placeOf.get(to)!);
-      routes.set(key, points);
-    }
-    return points.map((p) => [p[0], p[1]] as Point);
-  };
-  const edges = relations.edges.map((e) => ({ from: e.from, to: e.to, points: route(e.from, e.to) }));
-  const connectors = relations.connectors.map((c) => ({
+  // The way from an end to its level in the gap below its row.
+  const wayOf = (end: End): Point[] =>
+    end.column === null
+      ? [[end.x, end.bottom], [end.x, end.level]]
+      : [[end.x, end.bottom], [end.x, end.innerLevel!], [end.column, end.innerLevel!], [end.column, end.level]];
+  const points = drawn.map((line): Point[] => {
+    const x = columnOf.get(line)!.marginColumn!;
+    return [...wayOf(line.out), [x, line.out.level], [x, line.in.level], ...wayOf(line.in).reverse()];
+  });
+  const edges = relations.edges.map((e, i) => ({ from: e.from, to: e.to, points: points[i]! }));
+  const connectors = relations.connectors.map((c, i) => ({
     scenario: c.scenario,
     step: c.step,
-    points: route(c.from, c.to),
+    points: points[relations.edges.length + i]!,
   }));
   return { width, height, zones, parts, externals, edges, connectors };
 }
 
-// ---- routing ----------------------------------------------------------
-
 type Point = [number, number];
-const PAD = 4;
-const BEND = 24;
-
-// Orthogonal routes that never enter a rectangle's inside. Each rectangle
-// is padded by 4 (half the gap rectangles keep), so padded rectangles never
-// overlap and the space outside them is connected (the outer margin of 8
-// leaves a free ring). Routes run on the grid of padded edges: a line leaves
-// the middle of a side, goes 4 out to the padded edge, slides along it to a
-// corner, crosses the grid by A* (length plus a cost for each bend), and
-// comes in the same way at the other rectangle.
-function makeRouter(rects: Box[]): (a: Box, b: Box) => Point[] {
-  const padded = rects.map((r) => ({ l: r.x - PAD, r: r.x + r.w + PAD, t: r.y - PAD, b: r.y + r.h + PAD }));
-  const xs = [...new Set(padded.flatMap((p) => [p.l, p.r]))].sort((a, b) => a - b);
-  const ys = [...new Set(padded.flatMap((p) => [p.t, p.b]))].sort((a, b) => a - b);
-  const nx = xs.length;
-  const ny = ys.length;
-  const xi = new Map(xs.map((x, i) => [x, i]));
-  const yi = new Map(ys.map((y, j) => [y, j]));
-  // blockedH[j*nx+i]: (xs[i], ys[j]) to (xs[i+1], ys[j]); blockedV[j*nx+i]:
-  // (xs[i], ys[j]) to (xs[i], ys[j+1]). A segment is blocked when it runs
-  // through a padded rectangle's inside.
-  const blockedH = new Uint8Array(nx * ny);
-  const blockedV = new Uint8Array(nx * ny);
-  for (const p of padded) {
-    const [l, r, t, b] = [xi.get(p.l)!, xi.get(p.r)!, yi.get(p.t)!, yi.get(p.b)!];
-    for (let j = t + 1; j < b; j++) for (let i = l; i < r; i++) blockedH[j * nx + i] = 1;
-    for (let j = t; j < b; j++) for (let i = l + 1; i < r; i++) blockedV[j * nx + i] = 1;
-  }
-
-  const states = nx * ny * 4;
-  const dist = new Float64Array(states);
-  const prev = new Int32Array(states);
-  const seen = new Int32Array(states);
-  let search = 0;
-  // A binary heap of (f, g, state), in parallel arrays.
-  let heapF = new Float64Array(1024);
-  let heapS = new Int32Array(1024);
-  let size = 0;
-  const push = (f: number, s: number) => {
-    if (size === heapF.length) {
-      const f2 = new Float64Array(size * 2);
-      f2.set(heapF);
-      heapF = f2;
-      const s2 = new Int32Array(size * 2);
-      s2.set(heapS);
-      heapS = s2;
-    }
-    let i = size++;
-    while (i > 0) {
-      const parent = (i - 1) >> 1;
-      if (heapF[parent]! < f || (heapF[parent]! === f && heapS[parent]! <= s)) break;
-      heapF[i] = heapF[parent]!;
-      heapS[i] = heapS[parent]!;
-      i = parent;
-    }
-    heapF[i] = f;
-    heapS[i] = s;
-  };
-  const pop = (): number => {
-    const top = heapS[0]!;
-    size--;
-    if (size > 0) {
-      const f = heapF[size]!;
-      const s = heapS[size]!;
-      let i = 0;
-      for (;;) {
-        const l = 2 * i + 1;
-        if (l >= size) break;
-        const r = l + 1;
-        const c = r < size && (heapF[r]! < heapF[l]! || (heapF[r]! === heapF[l]! && heapS[r]! < heapS[l]!)) ? r : l;
-        if (heapF[c]! > f || (heapF[c]! === f && heapS[c]! >= s)) break;
-        heapF[i] = heapF[c]!;
-        heapS[i] = heapS[c]!;
-        i = c;
-      }
-      heapF[i] = f;
-      heapS[i] = s;
-    }
-    return top;
-  };
-
-  const step = [
-    [1, 0],
-    [0, 1],
-    [-1, 0],
-    [0, -1],
-  ] as const;
-  // For each side: the middle of the side, the point 4 out, and the padded
-  // corners at the two ends with the direction of sliding toward each.
-  interface Port {
-    side: Point;
-    out: Point;
-    corner: Point;
-    dir: number;
-  }
-  const ports = (r: Box): Port[] => {
-    const p = { l: r.x - PAD, r: r.x + r.w + PAD, t: r.y - PAD, b: r.y + r.h + PAD };
-    const cx = r.x + Math.floor(r.w / 2);
-    const cy = r.y + Math.floor(r.h / 2);
-    return [
-      { side: [r.x + r.w, cy], out: [p.r, cy], corner: [p.r, p.t], dir: 3 },
-      { side: [r.x + r.w, cy], out: [p.r, cy], corner: [p.r, p.b], dir: 1 },
-      { side: [cx, r.y + r.h], out: [cx, p.b], corner: [p.r, p.b], dir: 0 },
-      { side: [cx, r.y + r.h], out: [cx, p.b], corner: [p.l, p.b], dir: 2 },
-      { side: [r.x, cy], out: [p.l, cy], corner: [p.l, p.b], dir: 1 },
-      { side: [r.x, cy], out: [p.l, cy], corner: [p.l, p.t], dir: 3 },
-      { side: [cx, r.y], out: [cx, p.t], corner: [p.l, p.t], dir: 2 },
-      { side: [cx, r.y], out: [cx, p.t], corner: [p.r, p.t], dir: 0 },
-    ];
-  };
-  const along = (q: Port) => PAD + Math.abs(q.corner[0] - q.out[0]) + Math.abs(q.corner[1] - q.out[1]);
-  const nodeOf = (p: Point) => yi.get(p[1])! * nx + xi.get(p[0])!;
-
-  return (a: Box, b: Box): Point[] => {
-    search++;
-    size = 0;
-    const goalBox = { l: b.x - PAD, r: b.x + b.w + PAD, t: b.y - PAD, b: b.y + b.h + PAD };
-    const h = (n: number) => {
-      const x = xs[n % nx]!;
-      const y = ys[Math.floor(n / nx)]!;
-      return Math.max(0, goalBox.l - x, x - goalBox.r) + Math.max(0, goalBox.t - y, y - goalBox.b);
-    };
-    const visit = (s: number, g: number, from: number) => {
-      if (seen[s] === search && dist[s]! <= g) return;
-      seen[s] = search;
-      dist[s] = g;
-      prev[s] = from;
-      push(g + h(s >> 2), s);
-    };
-    const starts = ports(a);
-    // A start state carries -2 - (port index) as its previous state.
-    starts.forEach((q, k) => visit(nodeOf(q.corner) * 4 + q.dir, along(q), -2 - k));
-    // Leaving the grid at a padded corner of b: the cheapest finish there.
-    const finishes = new Map<number, { cost: number; port: Port }>();
-    for (const q of ports(b)) {
-      const n = nodeOf(q.corner);
-      const cost = along(q) + BEND;
-      if (!finishes.has(n) || finishes.get(n)!.cost > cost) finishes.set(n, { cost, port: q });
-    }
-    let best = Infinity;
-    let bestState = -1;
-    while (size > 0) {
-      const top = heapF[0]!;
-      if (top >= best) break;
-      const s = pop();
-      const g = dist[s]!;
-      if (g + h(s >> 2) > top) continue;
-      const n = s >> 2;
-      const finish = finishes.get(n);
-      if (finish && g + finish.cost < best) {
-        best = g + finish.cost;
-        bestState = s;
-      }
-      const dir = s & 3;
-      const i = n % nx;
-      const j = (n - i) / nx;
-      for (let nd = 0; nd < 4; nd++) {
-        if (nd === (dir + 2) % 4) continue;
-        const [dx, dy] = step[nd]!;
-        const ni = i + dx;
-        const nj = j + dy;
-        if (ni < 0 || nj < 0 || ni >= nx || nj >= ny) continue;
-        if (dx !== 0 ? blockedH[j * nx + Math.min(i, ni)] : blockedV[Math.min(j, nj) * nx + i]) continue;
-        const len = Math.abs(xs[ni]! - xs[i]!) + Math.abs(ys[nj]! - ys[j]!);
-        visit((nj * nx + ni) * 4 + nd, g + len + (nd === dir ? 0 : BEND), s);
-      }
-    }
-    if (bestState < 0) throw new Error("no route between two rectangles");
-
-    const finish = finishes.get(bestState >> 2)!.port;
-    const path: Point[] = [finish.side, finish.out];
-    let s = bestState;
-    for (;;) {
-      const n = s >> 2;
-      const i = n % nx;
-      path.push([xs[i]!, ys[(n - i) / nx]!]);
-      const p = prev[s]!;
-      if (p <= -2) {
-        const q = starts[-2 - p]!;
-        path.push(q.out, q.side);
-        break;
-      }
-      s = p;
-    }
-    path.reverse();
-    // Drop repeated points and middle points on a straight run.
-    const out: Point[] = [];
-    for (const p of path) {
-      const last = out.at(-1);
-      if (last && last[0] === p[0] && last[1] === p[1]) continue;
-      if (out.length >= 2) {
-        const q = out.at(-2)!;
-        if ((q[0] === last![0] && last![0] === p[0]) || (q[1] === last![1] && last![1] === p[1])) out.pop();
-      }
-      out.push(p);
-    }
-    return out;
-  };
-}

@@ -157,6 +157,8 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
 - `draft` reads `roots` from the config file only as plain paths, not as
   globs.
 - The page loads nothing from outside and holds no absolute path or time.
+- When a new `codeplan.mjs` places the lines in another way, `check` reports
+  the page of a plan that draws lines as outdated once; run `update`.
 
 ## Developing codeplan
 
