@@ -2704,7 +2704,7 @@ th, td { border-right: 1px solid var(--cp-control-line); border-bottom: 1px soli
 tr > :first-child { border-left: 1px solid var(--cp-control-line); }
 .records tr > :first-child { position: sticky; left: 0; background: var(--cp-bg); }
 .records th span { display: block; color: var(--cp-text-dim); }
-th[data-same] { color: var(--cp-text-dim); }
+th[data-same] { color: var(--cp-text-dim); white-space: normal; width: 4.5em; max-width: 4.5em; }
 th[data-marks~="config"], td.config { border-left: 4px solid var(--cp-control-line); }
 .records td:not(:empty) { background: var(--cp-part-fill); box-shadow: inset 0 0 0 1px var(--cp-part-line); }
 .records [data-active] { box-shadow: inset 3px 0 0 var(--cp-active), inset -3px 0 0 var(--cp-active); font-weight: 700; }

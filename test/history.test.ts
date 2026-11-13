@@ -656,7 +656,7 @@ describe("history: the file", () => {
     for (const rule of [
       /html, body \{[^}]*background: var\(--cp-bg\)[^}]*color: var\(--cp-text\)/,
       /th span \{[^}]*color: var\(--cp-text-dim\)/,
-      /th\[data-same\] \{ color: var\(--cp-text-dim\)/,
+      /th\[data-same\] \{ color: var\(--cp-text-dim\); white-space: normal; width: 4\.5em; max-width: 4\.5em; \}/,
       /td:not\(:empty\) \{ background: var\(--cp-part-fill\); box-shadow: [^;]*var\(--cp-part-line\)/,
       /\[data-active\] \{ box-shadow: [^;]*var\(--cp-active\)[^}]*font-weight: 700/,
       /button \{ background: var\(--cp-control-fill\); color: var\(--cp-control-text\); border: 1px solid var\(--cp-control-line\)/,
