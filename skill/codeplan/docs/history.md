@@ -81,7 +81,7 @@ Each column is a record and each row is a part.
   in the comparison of that record: the part did not change, or the column
   is not compared or not measured.
 - The fill of a cell with a change in lines shows how many lines changed,
-  in three steps that the line under the table names: `Fill by lines
+  in three fills that the paragraph under the table names: `Fill by lines
   changed: 0–9, 10–99, 100 or more.` The fill shows the size only: `+12`
   and `-12` have the same fill, and more and fewer lines differ by the sign
   alone. A `new` or `removed` cell has the plain fill of a cell with text.
