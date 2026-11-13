@@ -103,10 +103,10 @@ node docs/codeplan/codeplan.mjs draft --parts-by-name 10
   letters and digits right after it: `Stock` in `StockService.java`, `Bill2`
   in `Bill2Client.kt`. A name that starts in another way has none
   (`IStock.java`, `URLHelper.java`, `package-info.java`).
-- `draft` reads the Java and Kotlin files of modules that have a directory
-  with one of these names below the common package: `controller`, `dao`,
-  `domain`, `dto`, `entity`, `mapper`, `model`, `repository`, `service`,
-  `vo`. The first such directory on the path counts for the file.
+- `draft` uses a Java or Kotlin file of a module when a directory on its
+  path, below the common package, has one of these names: `controller`,
+  `dao`, `domain`, `dto`, `entity`, `mapper`, `model`, `repository`,
+  `service`, `vo`. The first such directory on the path counts for the file.
 - Take the files whose names start with the same word, in all modules. When
   there are `<n>` or more of them, under two or more of these names, they
   give a part that `draft` makes from file names. Its `name` is the word,
