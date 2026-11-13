@@ -214,6 +214,16 @@ The config or part patterns changed, so some changes come from new rules, not ne
     expect(printed(report(head, base))).toContain("\nNo part changed.\n\nThe config or part patterns changed,");
   });
 
+  test("config keys in another order and an unknown config key in the base are not a config change", () => {
+    const repo = repoWith(P());
+    const base = baseFile(repo, (text) => {
+      const value = JSON.parse(text) as { config: Record<string, unknown> };
+      value.config = { ...Object.fromEntries(Object.entries(value.config).reverse()), extra: 1 };
+      return JSON.stringify(value);
+    });
+    expect(printed(report(repo, base))).toBe(`${OK}\n### Changes\n\nNo part changed.\n`);
+  });
+
   test("a planned part that got code is marked, and its own narrow pattern gives no directory note", () => {
     const plan = () => planOf(part("shop", ["src/shop/**"]), part("auth", ["src/auth/**"]), REFUND);
     const base = baseFile(repoWith(plan()));

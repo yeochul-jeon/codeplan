@@ -1,5 +1,5 @@
 // The history command: the records of a directory as one HTML file.
-import { cpSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { describe, expect, test } from "vitest";
@@ -373,6 +373,31 @@ describe("history: records and columns", () => {
     // With no other change it is the same record.
     put(dir, "r2.json", JSON.stringify({ ...JSON.parse(text(dir, "r1.json")), config: value.config }));
     expect(view(dir).columns[0]).toEqual({ name: "r1", marks: null, same: "1" });
+  });
+
+  test("a name with a control character and a file that cannot be read are skipped", () => {
+    const dir = sameThenMore();
+    put(dir, "a\tb.json", text(dir, "r1.json"));
+    put(dir, "c\td.failed", "x\n");
+    put(dir, "locked.json", text(dir, "r1.json"));
+    put(dir, "shut.failed", "x\n");
+    chmodSync(join(dir, "locked.json"), 0);
+    chmodSync(join(dir, "shut.failed"), 0);
+    const out = run(["history", dir], tempDir());
+    chmodSync(join(dir, "locked.json"), 0o644);
+    chmodSync(join(dir, "shut.failed"), 0o644);
+    expect(out.code).toBe(0);
+    expect(out.stderr).toBe(
+      "history: skipped a\ufffdb.json: unsupported name\n" +
+        "history: skipped c\ufffdd.failed: unsupported name\n" +
+        "history: skipped locked.json: cannot read\n" +
+        "history: skipped shut.failed: cannot read\n",
+    );
+    const v = open(out.stdout);
+    expect(v.columns.map((c) => c.name)).toEqual(["r1", "r3"]);
+    expect(v.sentences[2]).toBe(
+      "Files not read: a\ufffdb.json (unsupported name), c\ufffdd.failed (unsupported name), locked.json (cannot read), shut.failed (cannot read).",
+    );
   });
 
   test("a candidate that is not what snapshot prints is skipped", () => {
