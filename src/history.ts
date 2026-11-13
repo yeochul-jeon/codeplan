@@ -319,7 +319,7 @@ th[data-marks~="config"], td.config { border-left: 4px solid var(--cp-control-li
 .records [data-active] { box-shadow: inset 3px 0 0 var(--cp-active), inset -3px 0 0 var(--cp-active); font-weight: 700; }
 .records td[data-active]:not(:empty) { box-shadow: inset 0 0 0 3px var(--cp-active); }
 button { background: var(--cp-control-fill); color: var(--cp-control-text); border: 1px solid var(--cp-control-line); border-radius: 4px; font: inherit; padding: 2px 8px; }
-th[data-record] button { writing-mode: vertical-rl; padding: 8px 2px; }
+th[data-record] button { writing-mode: vertical-rl; padding: 8px 2px; font-variant-numeric: tabular-nums; }
 section { margin: 12px 0; }
 #tools { margin: 12px 0 0; }
 `;
