@@ -583,6 +583,7 @@ var LAYER_NAMES = /* @__PURE__ */ new Set([
   "service",
   "vo"
 ]);
+var FIRST_WORD = /^[A-Z][a-z0-9]+/;
 var segs = (p2) => p2 === "" ? [] : p2.split("/");
 var dirOf = (p2) => {
   const i = p2.lastIndexOf("/");
@@ -634,6 +635,7 @@ function newPart(kind, fields2 = {}) {
 }
 var linesOf = (files) => files.reduce((sum, f) => sum + f.lines, 0);
 var moduleName = (m) => m.path === "" ? "." : m.path;
+var layerOf = (f) => f.module !== null && f.root !== null && ["java", "kt"].includes(extensionOf(f.path)) ? segs(dirOf(strip(f.rel, f.module.commonPackage))).find((s) => LAYER_NAMES.has(s)) : void 0;
 function compareParts(a, b) {
   if (a.kind !== b.kind) return a.kind - b.kind;
   if (a.kind === 1) {
@@ -885,30 +887,66 @@ function draft(repo, options) {
     (f) => rules.inBuildOutput(f.path) && !underGiven(f.path)
   ).length;
   for (const m of modules) m.commonPackage = commonPackage(m.code.map((f) => f.rel));
+  const nameParts = [];
+  const byName = /* @__PURE__ */ new Map();
+  if (options.partsByName !== null) {
+    const perWord = /* @__PURE__ */ new Map();
+    for (const f of modules.flatMap((m) => m.code)) {
+      const layer = layerOf(f);
+      const word = FIRST_WORD.exec(baseOf(f.path))?.[0];
+      if (layer === void 0 || word === void 0) continue;
+      const entry = perWord.get(word) ?? { files: [], layers: /* @__PURE__ */ new Set() };
+      entry.files.push(f);
+      entry.layers.add(layer);
+      perWord.set(word, entry);
+    }
+    const patterns = [];
+    for (const word of sorted(perWord.keys())) {
+      const { files, layers } = perWord.get(word);
+      if (files.length < options.partsByName || layers.size < 2) continue;
+      const part = newPart(3, {
+        path: word,
+        extra: sorted(files.map((f) => `${asGlobLiteral(dirOf(f.path))}/${word}*`))
+      });
+      nameParts.push(part);
+      for (const p2 of part.extra) patterns.push({ part, regex: compileGlob(p2), strength: strength(p2) });
+    }
+    patterns.sort((a, b) => b.strength - a.strength);
+    for (const f of [...modules.flatMap((m) => m.code), ...outside]) {
+      const part = patterns.find((p2) => p2.regex.test(f.path))?.part;
+      if (part === void 0) continue;
+      part.files.push(f);
+      byName.set(f, part);
+    }
+  }
+  const remaining = (files) => files.filter((f) => !byName.has(f));
+  const foldLimit = Math.max(1, maxParts - nameParts.length);
   const parts = [];
   const outsideGroup = [];
   if (many) {
     const nonRoot = modules.filter((m) => m.path !== "").sort((a, b) => b.path.length - a.path.length);
     const extraFiles = /* @__PURE__ */ new Map();
-    for (const f of outside) {
+    for (const f of remaining(outside)) {
       const home = f.path.includes("/") ? nonRoot.find((m) => isUnder(f.path, m.path)) : void 0;
       if (home) extraFiles.set(home, [...extraFiles.get(home) ?? [], f]);
       else outsideGroup.push(f);
     }
     for (const m of modules) {
       const extra = extraFiles.get(m) ?? [];
-      if (m.code.length + m.mappers.length + extra.length === 0) continue;
+      const code = remaining(m.code);
+      const onlyMappers = m.code.length === 0 && m.mappers.length > 0;
+      if (code.length + extra.length === 0 && !onlyMappers) continue;
       const part = newPart(1, {
         module: m,
         modulePart: true,
-        files: [...m.code, ...extra],
+        files: [...code, ...extra],
         dirPattern: extra.length > 0
       });
       m.start = part;
       parts.push(part);
     }
   } else {
-    outsideGroup.push(...outside);
+    outsideGroup.push(...remaining(outside));
     for (const m of modules) {
       if (m.code.length === 0) {
         if (m.mappers.length > 0) {
@@ -918,9 +956,10 @@ function draft(repo, options) {
         }
         continue;
       }
+      const code = remaining(m.code);
       const dirFor = (f) => dirOf(strip(f.rel, m.commonPackage));
-      const depth = startDepth(keysAtDepth(m.code.map(dirFor)), maxParts);
-      for (const [key, files] of groupAtDepth(m.code, dirFor, depth)) {
+      const depth = startDepth(keysAtDepth(code.map(dirFor)), foldLimit);
+      for (const [key, files] of groupAtDepth(code, dirFor, depth)) {
         const part = newPart(1, { module: m, common: key === "", path: key, files });
         if (part.common) m.start = part;
         parts.push(part);
@@ -930,7 +969,7 @@ function draft(repo, options) {
   if (outsideGroup.length > 0) {
     const resourcesDirOf = (f) => resourcesIndex.find((m) => isUnder(f.path, m.resources))?.resources ?? null;
     const keyAt = (f, d) => resourcesDirOf(f) ?? segs(dirOf(f.path)).slice(0, d).join("/");
-    const depth = startDepth((d) => new Set(outsideGroup.map((f) => keyAt(f, d))), maxParts);
+    const depth = startDepth((d) => new Set(outsideGroup.map((f) => keyAt(f, d))), foldLimit);
     const groups = /* @__PURE__ */ new Map();
     for (const f of outsideGroup) {
       const key = keyAt(f, depth);
@@ -1003,19 +1042,19 @@ function draft(repo, options) {
     return now.filter((p2) => p2.common);
   };
   const foldOrder = (a, b) => linesOf(a.files) - linesOf(b.files) || levelOf(b) - levelOf(a) || compareParts(a, b);
-  while (alive().length > maxParts) {
+  while (alive().length > foldLimit) {
     const candidates = eligible();
     if (candidates.length === 0) break;
     const x = candidates.sort(foldOrder)[0];
     merge(x, target(x));
   }
-  const final = alive().sort(compareParts);
+  const final = [...alive().sort(compareParts), ...nameParts];
   const notes = [];
   const used = /* @__PURE__ */ new Set();
   for (const p2 of final) {
     let base;
     if (p2.kind === 0) base = "top";
-    else if (p2.kind === 2) base = normalizeId(p2.path);
+    else if (p2.kind !== 1) base = normalizeId(p2.path);
     else {
       const m = p2.module;
       const name = m.path === "" ? "top" : normalizeId(m.path);
@@ -1048,6 +1087,7 @@ function draft(repo, options) {
     restFiles: [],
     outsidePattern: 0
   };
+  const underNamePattern = /* @__PURE__ */ new Set();
   for (const m of modules) {
     if (m.mappers.length === 0) continue;
     const packageParts = final.filter((p2) => p2.kind === 1 && !p2.modulePart && p2.module === m).map((p2) => ({ part: p2, pkg: joinPath(m.commonPackage, p2.path) })).filter((x) => x.pkg !== "");
@@ -1090,7 +1130,14 @@ function draft(repo, options) {
       );
       return ranked[0] ?? null;
     };
-    const representative = m.start !== null ? resolve2(m.start) : best(m.code.map((f) => ownerOf.get(f.path)), m.mappers);
+    const fromNames = () => {
+      const count2 = (p2) => m.mappers.filter((x) => found.get(x) === p2).length;
+      const lines = (p2) => linesOf(m.code.filter((f) => byName.get(f) === p2));
+      return [...new Set(m.code.map((f) => byName.get(f)))].sort(
+        (a, b) => count2(b) - count2(a) || lines(b) - lines(a) || byCodeUnit(a.path, b.path)
+      )[0];
+    };
+    const representative = m.start !== null ? resolve2(m.start) : best(remaining(m.code).map((f) => ownerOf.get(f.path)), m.mappers) ?? fromNames();
     const perDir = /* @__PURE__ */ new Map();
     for (const xml of m.mappers) {
       const dir = dirOf(xml.rel);
@@ -1119,6 +1166,7 @@ function draft(repo, options) {
       for (const xml of xmls) {
         const owner = found.get(xml) ?? holder;
         if (owner !== holder) owner.extra.push(asGlobLiteral(xml.path));
+        if (owner !== holder && holder.kind === 3) underNamePattern.add(asGlobLiteral(xml.path));
         take(owner, xml);
       }
     }
@@ -1143,6 +1191,8 @@ function draft(repo, options) {
       own = p2.exactPaths && !p2.received ? p2.files.map((f) => asGlobLiteral(f.path)) : [`${asGlobLiteral(p2.path)}/**`];
     } else if (p2.modulePart) {
       own = p2.dirPattern ? [`${asGlobLiteral(p2.module.path)}/**`] : globsUnderRoots(p2.files, "");
+    } else if (p2.kind === 3) {
+      own = [];
     } else if (p2.common && !p2.received) {
       own = p2.files.map((f) => asGlobLiteral(f.path));
     } else {
@@ -1150,7 +1200,9 @@ function draft(repo, options) {
     }
     const all2 = sorted([...own, ...p2.extra]);
     const wide = all2.filter((q) => q === "**" || q.endsWith("/**")).map((q) => q.slice(0, -2));
-    return all2.filter((q) => !wide.some((w) => q !== `${w}**` && q.startsWith(w)));
+    return all2.filter(
+      (q) => underNamePattern.has(q) || !wide.some((w) => q !== `${w}**` && q.startsWith(w))
+    );
   };
   const draftConfig = { languages };
   if (java && collected.length > 0) {
@@ -1202,34 +1254,47 @@ function draft(repo, options) {
     notes.push({ code: "no-zones", message: "one module, so no zone is proposed" });
   }
   if (final.length > maxParts) {
+    const noFold = many ? "the root module part cannot fold" : "parts do not fold across modules";
     notes.push({
       code: "over-max-parts",
       parts: final.length,
       maxParts,
-      message: `${final.length} parts, more than the maximum ${maxParts}: ` + (many ? "the root module part cannot fold" : "parts do not fold across modules")
+      message: `${final.length} parts, more than the maximum ${maxParts}: ` + (nameParts.length === 0 ? noFold : `--parts-by-name made ${nameParts.length} of them` + (final.length - nameParts.length > foldLimit ? `, and ${noFold}` : ""))
     });
   }
   if (many) {
-    const remaining = final.filter((p2) => p2.modulePart).length;
+    const remaining2 = final.filter((p2) => p2.modulePart).length;
     notes.push({
       code: "modules",
       modules: moduleCount,
-      notRemaining: moduleCount - remaining,
-      message: `${moduleCount} modules; ${moduleCount - remaining} of them do not remain as module parts`
+      notRemaining: moduleCount - remaining2,
+      message: `${moduleCount} modules; ${moduleCount - remaining2} of them do not remain as module parts`
     });
   }
   const javaCode = modules.flatMap(
     (m) => m.code.filter((f) => ["java", "kt"].includes(extensionOf(f.path))).map((f) => ({ f, m }))
   );
-  const layerFiles = javaCode.filter(
-    ({ f, m }) => segs(dirOf(strip(f.rel, m.commonPackage))).some((s) => LAYER_NAMES.has(s))
-  ).length;
+  const layerFiles = javaCode.filter(({ f }) => layerOf(f) !== void 0).length;
   if (javaCode.length > 0 && layerFiles * 2 >= javaCode.length) {
     notes.push({
       code: "layers",
       layerFiles,
       files: javaCode.length,
       message: `${layerFiles} of ${javaCode.length} Java/Kotlin files sit in layer directories (controller, service, ...); parts here follow packages, not layers`
+    });
+  }
+  if (options.partsByName !== null && nameParts.length > 0) {
+    const files = nameParts.reduce((sum, p2) => sum + p2.files.length + p2.mapperFiles.length, 0);
+    notes.push({
+      code: "parts-by-name",
+      parts: nameParts.length,
+      files,
+      message: `${nameParts.length} parts come from the first word of file names in layer directories; they hold ${files} files`
+    });
+  } else if (options.partsByName !== null) {
+    notes.push({
+      code: "no-parts-by-name",
+      message: `no part comes from file names: no first word of a file name has ${options.partsByName} or more files under two or more of these names: ${[...LAYER_NAMES].join(", ")}`
     });
   }
   if (fromBuildOutput > 0) {
@@ -1243,7 +1308,7 @@ function draft(repo, options) {
     const zone = zoneOf(p2);
     return {
       id: p2.id,
-      name: p2.id,
+      name: p2.kind === 3 ? p2.path : p2.id,
       ...zone === void 0 ? {} : { zone },
       about: "",
       paths: pathsOf(p2)
@@ -3323,6 +3388,9 @@ Report options:
 
 Draft options:
   --max-parts <n>     Most parts to propose (default 16).
+  --parts-by-name <n> Also make a part from the first word of file names
+                      in layer directories, when n or more files start
+                      with that word.
   --language <name>   Language rules to use: js or java. Repeat for both.
   --root <dir>        Source root to use instead of the language rules.
                       Repeat for more than one.
@@ -3345,7 +3413,7 @@ file in it is a snapshot.
 `;
 var LIST_LIMIT2 = 30;
 var COMMANDS = ["check", "update", "draft", "summary", "snapshot", "report", "history", "help"];
-var OPTIONS = ["--repo", "--no-page", "--max-parts", "--language", "--root", "--mermaid", "--base"];
+var OPTIONS = ["--repo", "--no-page", "--max-parts", "--parts-by-name", "--language", "--root", "--mermaid", "--base"];
 function pagePlace(repo, page) {
   const segments = page.split("/");
   for (let i = 1; i < segments.length; i++) {
@@ -3727,6 +3795,7 @@ ${USAGE}`
   let command;
   let repo = cwd;
   let maxParts;
+  let partsByName;
   const languages = [];
   const roots = [];
   const draftFlags = [];
@@ -3752,7 +3821,10 @@ ${USAGE}`
       if (value === void 0) return usageError(`${arg} needs a value`);
       draftFlags.push(arg);
       if (arg === "--max-parts") maxParts = value;
-      else if (arg === "--language") languages.push(value);
+      else if (arg === "--parts-by-name") {
+        if (partsByName !== void 0) return usageError("--parts-by-name is given more than once");
+        partsByName = value;
+      } else if (arg === "--language") languages.push(value);
       else roots.push(value);
     } else if (arg.startsWith("-")) {
       return usageError(`unknown option ${arg}`);
@@ -3778,6 +3850,9 @@ ${USAGE}`
   }
   const parts = maxParts === void 0 ? 16 : Number(maxParts);
   if (parts < 1) return usageError(`--max-parts needs a whole number of 1 or more, not "${maxParts}"`);
+  if (partsByName !== void 0 && !/^[0-9]*[1-9][0-9]*$/.test(partsByName)) {
+    return usageError(`--parts-by-name needs a whole number of 1 or more, not "${partsByName}"`);
+  }
   if (!statSync(repo, { throwIfNoEntry: false })?.isDirectory()) {
     return { code: 2, stdout: "", stderr: `codeplan: repository not found: ${repo}
 ` };
@@ -3786,6 +3861,7 @@ ${USAGE}`
     try {
       const out = draft(repo, {
         maxParts: parts,
+        partsByName: partsByName === void 0 ? null : Number(partsByName),
         languages: languages.length > 0 ? languages : null,
         roots: roots.length > 0 ? roots : null
       });

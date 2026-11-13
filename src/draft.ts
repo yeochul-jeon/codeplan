@@ -4,7 +4,7 @@
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_FILE, LANGUAGES, isUnder, readConfig, type Config, type Language } from "./config.js";
-import { GlobSet } from "./glob.js";
+import { GlobSet, compileGlob, strength } from "./glob.js";
 import { lineTotal } from "./lines.js";
 import { Rules, byCodeUnit, extensionOf, hasDotSegment, listFiles } from "./measure.js";
 
@@ -15,6 +15,9 @@ export interface DraftOptions {
   // From the command line; null when not given.
   languages: string[] | null;
   roots: string[] | null;
+  // Make a part from file names when this many files start with one word;
+  // null when not asked for.
+  partsByName: number | null;
 }
 
 type Source = "command line" | "codeplan.json" | "detected" | "default";
@@ -24,6 +27,8 @@ export type Note =
   | { code: "over-max-parts"; parts: number; maxParts: number; message: string }
   | { code: "modules"; modules: number; notRemaining: number; message: string }
   | { code: "layers"; layerFiles: number; files: number; message: string }
+  | { code: "parts-by-name"; parts: number; files: number; message: string }
+  | { code: "no-parts-by-name"; message: string }
   | { code: "exact-paths"; files: number; message: string }
   | { code: "build-output"; files: number; message: string };
 
@@ -71,6 +76,8 @@ const MAPPER_NS_ATTR = /<mapper\b[^>]*?\bnamespace\s*=\s*(?:"([^"]*)"|'([^']*)')
 const LAYER_NAMES = new Set([
   "controller", "dao", "domain", "dto", "entity", "mapper", "model", "repository", "service", "vo",
 ]);
+// The first word of a file name: one capital, then small letters and digits.
+const FIRST_WORD = /^[A-Z][a-z0-9]+/;
 
 // ---- paths ----------------------------------------------------------------
 
@@ -136,13 +143,14 @@ interface FileRec {
 
 interface Part {
   // 0: the whole-repository part, 1: a part inside a module (or a module part),
-  // 2: any other directory part.
-  kind: 0 | 1 | 2;
+  // 2: any other directory part, 3: a part made from file names.
+  kind: 0 | 1 | 2 | 3;
   module: Module | null;
   common: boolean;
   modulePart: boolean;
   // Common-package-relative path inside a module, the directory otherwise;
-  // "" for the whole-repository, common package and module parts.
+  // "" for the whole-repository, common package and module parts. The word
+  // for a part made from file names.
   path: string;
   files: FileRec[];
   received: boolean;
@@ -182,6 +190,12 @@ function newPart(kind: Part["kind"], fields: Partial<Part> = {}): Part {
 
 const linesOf = (files: FileRec[]): number => files.reduce((sum, f) => sum + f.lines, 0);
 const moduleName = (m: Module): string => (m.path === "" ? "." : m.path);
+// For a Java or Kotlin file of a module: the first directory below the
+// common package that is named like a layer, if there is one.
+const layerOf = (f: FileRec): string | undefined =>
+  f.module !== null && f.root !== null && ["java", "kt"].includes(extensionOf(f.path))
+    ? segs(dirOf(strip(f.rel, f.module.commonPackage))).find((s) => LAYER_NAMES.has(s))
+    : undefined;
 
 function compareParts(a: Part, b: Part): number {
   if (a.kind !== b.kind) return a.kind - b.kind;
@@ -482,31 +496,75 @@ export function draft(repo: string, options: DraftOptions): Draft {
 
   for (const m of modules) m.commonPackage = commonPackage(m.code.map((f) => f.rel));
 
+  // ---- parts from file names ----
+  // A word that starts enough files in layer directories, under two or more
+  // of these names, gives one part. The part holds `<directory>/<word>*`
+  // for each directory of those files, and the patterns decide its files:
+  // every file a pattern matches, the longer word first.
+  const nameParts: Part[] = [];
+  const byName = new Map<FileRec, Part>();
+  if (options.partsByName !== null) {
+    const perWord = new Map<string, { files: FileRec[]; layers: Set<string> }>();
+    for (const f of modules.flatMap((m) => m.code)) {
+      const layer = layerOf(f);
+      const word = FIRST_WORD.exec(baseOf(f.path))?.[0];
+      if (layer === undefined || word === undefined) continue;
+      const entry = perWord.get(word) ?? { files: [], layers: new Set() };
+      entry.files.push(f);
+      entry.layers.add(layer);
+      perWord.set(word, entry);
+    }
+    const patterns: { part: Part; regex: RegExp; strength: number }[] = [];
+    for (const word of sorted(perWord.keys())) {
+      const { files, layers } = perWord.get(word)!;
+      if (files.length < options.partsByName || layers.size < 2) continue;
+      const part = newPart(3, {
+        path: word,
+        extra: sorted(files.map((f) => `${asGlobLiteral(dirOf(f.path))}/${word}*`)),
+      });
+      nameParts.push(part);
+      for (const p of part.extra) patterns.push({ part, regex: compileGlob(p), strength: strength(p) });
+    }
+    patterns.sort((a, b) => b.strength - a.strength);
+    for (const f of [...modules.flatMap((m) => m.code), ...outside]) {
+      const part = patterns.find((p) => p.regex.test(f.path))?.part;
+      if (part === undefined) continue;
+      part.files.push(f);
+      byName.set(f, part);
+    }
+  }
+  // The other files give the other parts, within what the count leaves.
+  const remaining = (files: FileRec[]): FileRec[] => files.filter((f) => !byName.has(f));
+  const foldLimit = Math.max(1, maxParts - nameParts.length);
+
   // ---- first parts ----
   const parts: Part[] = [];
   const outsideGroup: FileRec[] = [];
   if (many) {
     const nonRoot = modules.filter((m) => m.path !== "").sort((a, b) => b.path.length - a.path.length);
     const extraFiles = new Map<Module, FileRec[]>();
-    for (const f of outside) {
+    for (const f of remaining(outside)) {
       const home = f.path.includes("/") ? nonRoot.find((m) => isUnder(f.path, m.path)) : undefined;
       if (home) extraFiles.set(home, [...(extraFiles.get(home) ?? []), f]);
       else outsideGroup.push(f);
     }
     for (const m of modules) {
       const extra = extraFiles.get(m) ?? [];
-      if (m.code.length + m.mappers.length + extra.length === 0) continue;
+      const code = remaining(m.code);
+      // A module whose code all went to parts made from file names has no part.
+      const onlyMappers = m.code.length === 0 && m.mappers.length > 0;
+      if (code.length + extra.length === 0 && !onlyMappers) continue;
       const part = newPart(1, {
         module: m,
         modulePart: true,
-        files: [...m.code, ...extra],
+        files: [...code, ...extra],
         dirPattern: extra.length > 0,
       });
       m.start = part;
       parts.push(part);
     }
   } else {
-    outsideGroup.push(...outside);
+    outsideGroup.push(...remaining(outside));
     for (const m of modules) {
       if (m.code.length === 0) {
         if (m.mappers.length > 0) {
@@ -516,9 +574,10 @@ export function draft(repo: string, options: DraftOptions): Draft {
         }
         continue;
       }
+      const code = remaining(m.code);
       const dirFor = (f: FileRec) => dirOf(strip(f.rel, m.commonPackage));
-      const depth = startDepth(keysAtDepth(m.code.map(dirFor)), maxParts);
-      for (const [key, files] of groupAtDepth(m.code, dirFor, depth)) {
+      const depth = startDepth(keysAtDepth(code.map(dirFor)), foldLimit);
+      for (const [key, files] of groupAtDepth(code, dirFor, depth)) {
         const part = newPart(1, { module: m, common: key === "", path: key, files });
         if (part.common) m.start = part;
         parts.push(part);
@@ -532,7 +591,7 @@ export function draft(repo: string, options: DraftOptions): Draft {
       resourcesIndex.find((m) => isUnder(f.path, m.resources!))?.resources ?? null;
     const keyAt = (f: FileRec, d: number) =>
       resourcesDirOf(f) ?? segs(dirOf(f.path)).slice(0, d).join("/");
-    const depth = startDepth((d) => new Set(outsideGroup.map((f) => keyAt(f, d))), maxParts);
+    const depth = startDepth((d) => new Set(outsideGroup.map((f) => keyAt(f, d))), foldLimit);
     const groups = new Map<string, FileRec[]>();
     for (const f of outsideGroup) {
       const key = keyAt(f, depth);
@@ -613,14 +672,14 @@ export function draft(repo: string, options: DraftOptions): Draft {
   };
   const foldOrder = (a: Part, b: Part): number =>
     linesOf(a.files) - linesOf(b.files) || levelOf(b) - levelOf(a) || compareParts(a, b);
-  while (alive().length > maxParts) {
+  while (alive().length > foldLimit) {
     const candidates = eligible();
     if (candidates.length === 0) break;
     const x = candidates.sort(foldOrder)[0]!;
     merge(x, target(x));
   }
 
-  const final = alive().sort(compareParts);
+  const final = [...alive().sort(compareParts), ...nameParts];
   const notes: Note[] = [];
 
   // ---- ids and zones ----
@@ -628,7 +687,7 @@ export function draft(repo: string, options: DraftOptions): Draft {
   for (const p of final) {
     let base: string;
     if (p.kind === 0) base = "top";
-    else if (p.kind === 2) base = normalizeId(p.path);
+    else if (p.kind !== 1) base = normalizeId(p.path);
     else {
       const m = p.module!;
       const name = m.path === "" ? "top" : normalizeId(m.path);
@@ -658,6 +717,10 @@ export function draft(repo: string, options: DraftOptions): Draft {
   const mappers: MapperCounts = {
     namespace: 0, fileName: 0, package: 0, rest: 0, restFiles: [], outsidePattern: 0,
   };
+  // Exact XML paths in a directory whose `*.xml` a part made from file names
+  // holds: the owner writes them even inside its own `<dir>/**`, because the
+  // `*.xml` is stronger than that.
+  const underNamePattern = new Set<string>();
   for (const m of modules) {
     if (m.mappers.length === 0) continue;
     const packageParts = final
@@ -704,10 +767,20 @@ export function draft(repo: string, options: DraftOptions): Draft {
       );
       return ranked[0] ?? null;
     };
+    // When no other part holds files of the module, a part made from file
+    // names stands for it: most XML taken, then more lines in this module,
+    // then the word.
+    const fromNames = (): Part => {
+      const count = (p: Part) => m.mappers.filter((x) => found.get(x) === p).length;
+      const lines = (p: Part) => linesOf(m.code.filter((f) => byName.get(f) === p));
+      return [...new Set(m.code.map((f) => byName.get(f)!))].sort(
+        (a, b) => count(b) - count(a) || lines(b) - lines(a) || byCodeUnit(a.path, b.path),
+      )[0]!;
+    };
     const representative =
       m.start !== null
         ? resolve(m.start)
-        : best(m.code.map((f) => ownerOf.get(f.path)!), m.mappers)!;
+        : (best(remaining(m.code).map((f) => ownerOf.get(f.path)!), m.mappers) ?? fromNames());
     const perDir = new Map<string, FileRec[]>();
     for (const xml of m.mappers) {
       const dir = dirOf(xml.rel);
@@ -736,6 +809,7 @@ export function draft(repo: string, options: DraftOptions): Draft {
       for (const xml of xmls) {
         const owner = found.get(xml) ?? holder;
         if (owner !== holder) owner.extra.push(asGlobLiteral(xml.path));
+        if (owner !== holder && holder.kind === 3) underNamePattern.add(asGlobLiteral(xml.path));
         take(owner, xml);
       }
     }
@@ -768,6 +842,8 @@ export function draft(repo: string, options: DraftOptions): Draft {
           : [`${asGlobLiteral(p.path)}/**`];
     } else if (p.modulePart) {
       own = p.dirPattern ? [`${asGlobLiteral(p.module!.path)}/**`] : globsUnderRoots(p.files, "");
+    } else if (p.kind === 3) {
+      own = [];
     } else if (p.common && !p.received) {
       own = p.files.map((f) => asGlobLiteral(f.path));
     } else {
@@ -776,7 +852,9 @@ export function draft(repo: string, options: DraftOptions): Draft {
     const all = sorted([...own, ...p.extra]);
     // Drop what a `<dir>/**` (or `**`) of the same part already holds.
     const wide = all.filter((q) => q === "**" || q.endsWith("/**")).map((q) => q.slice(0, -2));
-    return all.filter((q) => !wide.some((w) => q !== `${w}**` && q.startsWith(w)));
+    return all.filter(
+      (q) => underNamePattern.has(q) || !wide.some((w) => q !== `${w}**` && q.startsWith(w)),
+    );
   };
 
   // ---- config ----
@@ -834,13 +912,17 @@ export function draft(repo: string, options: DraftOptions): Draft {
     notes.push({ code: "no-zones", message: "one module, so no zone is proposed" });
   }
   if (final.length > maxParts) {
+    const noFold = many ? "the root module part cannot fold" : "parts do not fold across modules";
     notes.push({
       code: "over-max-parts",
       parts: final.length,
       maxParts,
       message:
         `${final.length} parts, more than the maximum ${maxParts}: ` +
-        (many ? "the root module part cannot fold" : "parts do not fold across modules"),
+        (nameParts.length === 0
+          ? noFold
+          : `--parts-by-name made ${nameParts.length} of them` +
+            (final.length - nameParts.length > foldLimit ? `, and ${noFold}` : "")),
     });
   }
   if (many) {
@@ -857,9 +939,7 @@ export function draft(repo: string, options: DraftOptions): Draft {
       .filter((f) => ["java", "kt"].includes(extensionOf(f.path)))
       .map((f) => ({ f, m })),
   );
-  const layerFiles = javaCode.filter(({ f, m }) =>
-    segs(dirOf(strip(f.rel, m.commonPackage))).some((s) => LAYER_NAMES.has(s)),
-  ).length;
+  const layerFiles = javaCode.filter(({ f }) => layerOf(f) !== undefined).length;
   if (javaCode.length > 0 && layerFiles * 2 >= javaCode.length) {
     notes.push({
       code: "layers",
@@ -868,6 +948,24 @@ export function draft(repo: string, options: DraftOptions): Draft {
       message:
         `${layerFiles} of ${javaCode.length} Java/Kotlin files sit in layer directories ` +
         "(controller, service, ...); parts here follow packages, not layers",
+    });
+  }
+  if (options.partsByName !== null && nameParts.length > 0) {
+    const files = nameParts.reduce((sum, p) => sum + p.files.length + p.mapperFiles.length, 0);
+    notes.push({
+      code: "parts-by-name",
+      parts: nameParts.length,
+      files,
+      message:
+        `${nameParts.length} parts come from the first word of file names in layer directories; ` +
+        `they hold ${files} files`,
+    });
+  } else if (options.partsByName !== null) {
+    notes.push({
+      code: "no-parts-by-name",
+      message:
+        `no part comes from file names: no first word of a file name has ${options.partsByName} ` +
+        `or more files under two or more of these names: ${[...LAYER_NAMES].join(", ")}`,
     });
   }
   if (fromBuildOutput > 0) {
@@ -883,7 +981,7 @@ export function draft(repo: string, options: DraftOptions): Draft {
     const zone = zoneOf(p);
     return {
       id: p.id,
-      name: p.id,
+      name: p.kind === 3 ? p.path : p.id,
       ...(zone === undefined ? {} : { zone }),
       about: "",
       paths: pathsOf(p),

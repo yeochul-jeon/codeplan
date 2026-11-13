@@ -78,6 +78,9 @@ can change. Read the draft's `notes`: they say when parts could not be folded do
 the maximum, when files outside modules are listed one by one in `watch`,
 and when the code looks layered. `--max-parts <n>` asks for fewer or more
 parts (default 16); `--language` and `--root` override what `draft` finds.
+`--parts-by-name 10` also makes parts from the first word of file names in
+layer directories, when 10 or more files start with that word; see
+[draft](docs/draft.md).
 
 The draft's parts follow directories (and Java packages within modules).
 Its names are the ids, its descriptions are empty, and it has no `uses`,

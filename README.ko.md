@@ -53,7 +53,9 @@ node docs/codeplan/codeplan.mjs check
 ```
 
 `draft`는 디렉터리에서(Java에서는 모듈과 패키지에서) part를 제안하고 계획
-파일과 설정 파일을 출력합니다. `draft`와 `update` 사이에
+파일과 설정 파일을 출력합니다. layer 디렉터리(`controller`, `service` 등)가
+있는 Java 저장소에서는 `draft --parts-by-name 10`이 파일 이름의 첫 낱말로도
+part를 만듭니다. [draft](skill/codeplan/docs/draft.md)를 보십시오. `draft`와 `update` 사이에
 `docs/codeplan/plan.json`에서 part에 이름과 설명을 붙이고 `uses`,
 external, scenario를 더합니다.
 [계획 파일 참고 문서](skill/codeplan/docs/plan-file.md)를 보십시오. 그런

@@ -85,6 +85,9 @@ Report options:
 
 Draft options:
   --max-parts <n>     Most parts to propose (default 16).
+  --parts-by-name <n> Also make a part from the first word of file names
+                      in layer directories, when n or more files start
+                      with that word.
   --language <name>   Language rules to use: js or java. Repeat for both.
   --root <dir>        Source root to use instead of the language rules.
                       Repeat for more than one.
@@ -110,7 +113,7 @@ const LIST_LIMIT = 30;
 
 // The commands and options the command line takes.
 export const COMMANDS = ["check", "update", "draft", "summary", "snapshot", "report", "history", "help"];
-export const OPTIONS = ["--repo", "--no-page", "--max-parts", "--language", "--root", "--mermaid", "--base"];
+export const OPTIONS = ["--repo", "--no-page", "--max-parts", "--parts-by-name", "--language", "--root", "--mermaid", "--base"];
 
 // What is at the page place: nothing, a codeplan page, or something else.
 function pagePlace(repo: string, page: string): { kind: "absent" } | { kind: "page"; bytes: Buffer } | { kind: "other"; what: string } {
@@ -531,6 +534,7 @@ export function run(argv: readonly string[], cwd: string): RunResult {
   let command: string | undefined;
   let repo = cwd;
   let maxParts: string | undefined;
+  let partsByName: string | undefined;
   const languages: string[] = [];
   const roots: string[] = [];
   const draftFlags: string[] = [];
@@ -556,6 +560,10 @@ export function run(argv: readonly string[], cwd: string): RunResult {
       if (value === undefined) return usageError(`${arg} needs a value`);
       draftFlags.push(arg);
       if (arg === "--max-parts") maxParts = value;
+      else if (arg === "--parts-by-name") {
+        if (partsByName !== undefined) return usageError("--parts-by-name is given more than once");
+        partsByName = value;
+      }
       else if (arg === "--language") languages.push(value);
       else roots.push(value);
     } else if (arg.startsWith("-")) {
@@ -583,6 +591,9 @@ export function run(argv: readonly string[], cwd: string): RunResult {
   }
   const parts = maxParts === undefined ? 16 : Number(maxParts);
   if (parts < 1) return usageError(`--max-parts needs a whole number of 1 or more, not "${maxParts}"`);
+  if (partsByName !== undefined && !/^[0-9]*[1-9][0-9]*$/.test(partsByName)) {
+    return usageError(`--parts-by-name needs a whole number of 1 or more, not "${partsByName}"`);
+  }
   if (!statSync(repo, { throwIfNoEntry: false })?.isDirectory()) {
     return { code: 2, stdout: "", stderr: `codeplan: repository not found: ${repo}\n` };
   }
@@ -590,6 +601,7 @@ export function run(argv: readonly string[], cwd: string): RunResult {
     try {
       const out = draft(repo, {
         maxParts: parts,
+        partsByName: partsByName === undefined ? null : Number(partsByName),
         languages: languages.length > 0 ? languages : null,
         roots: roots.length > 0 ? roots : null,
       });

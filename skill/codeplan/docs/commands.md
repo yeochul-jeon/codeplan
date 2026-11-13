@@ -31,6 +31,7 @@ standard error.
 | `--repo <dir>` | all but `history` | The repository to read. |
 | `--no-page` | `check` | `check` does not compare the page. |
 | `--max-parts <n>` | `draft` | The most parts to propose (default 16). Decimal digits only, 1 or more. |
+| `--parts-by-name <n>` | `draft` | Also make parts from the first word of file names in layer directories, when `<n>` or more files start with that word. Decimal digits only, 1 or more, given once. See [draft](draft.md). |
 | `--language <name>` | `draft` | `js` or `java`. Repeat for both. |
 | `--root <dir>` | `draft` | A source root to use instead of the language rules. Repeat for more. |
 | `--mermaid` | `summary` | Print only the mermaid diagram. |

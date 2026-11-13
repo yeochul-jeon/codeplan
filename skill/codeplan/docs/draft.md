@@ -5,7 +5,7 @@ as one JSON document. It writes nothing. The result is a first version for
 a person to edit.
 
 ```sh
-node docs/codeplan/codeplan.mjs draft [--max-parts <n>] [--language <name>]... [--root <dir>]...
+node docs/codeplan/codeplan.mjs draft [--max-parts <n>] [--parts-by-name <n>] [--language <name>]... [--root <dir>]...
 ```
 
 ## Output
@@ -22,7 +22,7 @@ node docs/codeplan/codeplan.mjs draft [--max-parts <n>] [--language <name>]... [
 
 | Field | What it holds |
 |---|---|
-| `plan` | A plan file. Each part has `id`, `name` (the id), an empty `about`, `paths` and, when there is one, a `zone`. No `uses`, externals or scenarios. |
+| `plan` | A plan file. Each part has `id`, `name` (the id, or the word with `--parts-by-name`), an empty `about`, `paths` and, when there is one, a `zone`. No `uses`, externals or scenarios. |
 | `config` | A config file: `languages`; `watch`, except when the only language is `js` or nothing was found (the default watch then counts the same files); and `roots` when roots were given. |
 | `measure` | Files and lines for each part, and in total. |
 | `sources` | Where the languages and roots came from: `command line`, `codeplan.json`, `detected` or `default`. |
@@ -90,6 +90,50 @@ The output never holds the repository's directory name or location.
 - Glob characters in paths are written as one-character sets, such as
   `[[]`.
 
+## `--parts-by-name <n>`
+
+Without this option, parts follow packages. With it, `draft` also makes
+parts from the first word of file names in layer directories.
+
+```sh
+node docs/codeplan/codeplan.mjs draft --parts-by-name 10
+```
+
+- The first word of the file name is one capital letter and the small
+  letters and digits right after it: `Stock` in `StockService.java`, `Bill2`
+  in `Bill2Client.kt`. A name that starts in another way has none
+  (`IStock.java`, `URLHelper.java`, `package-info.java`).
+- `draft` reads the Java and Kotlin files of modules that have a directory
+  with one of these names below the common package: `controller`, `dao`,
+  `domain`, `dto`, `entity`, `mapper`, `model`, `repository`, `service`,
+  `vo`. The first such directory on the path counts for the file.
+- Take the files whose names start with the same word, in all modules. When
+  there are `<n>` or more of them, under two or more of these names, they
+  give a part that `draft` makes from file names. Its `name` is the word,
+  its id is the word in lowercase, and it has no `zone`. For each directory
+  those files are in, it holds one pattern, `<directory>/<word>*`.
+- The patterns decide the files of these parts. `Membership.java` in a
+  directory with the pattern `Member*` goes to that part, though its own
+  first word is longer. When the patterns of two of these parts match one
+  file, the strength in [ownership](ownership.md) decides.
+- The other files give parts as they do without the option. The most parts
+  for them is `--max-parts` less the number of these parts, and at least 1.
+  A module whose files all went to these parts has no part of its own. When
+  all the parts together are more than `--max-parts`, `notes` reports it.
+- These parts come last in `plan.parts`, in the order of their words. A
+  mapper XML goes by the four rules above, so the XML of a class in one of
+  these parts goes to that part too.
+- Two of these parts often have files in one package. `check` does not
+  report `use-without-import` for such a pair, and it reports more
+  `import-without-use` lines, because there are more parts.
+- The option is not written into the config file. To get the same result
+  again, give the option again.
+- It does not look at what a word means: two words that start with the same
+  letters go to one part, as `Stockroom.java` goes with `Stock`.
+- It does not make these parts, or makes small ones, in a repository whose
+  file names follow no rule.
+- It does not take a file outside the layer directories into these parts.
+
 ## Mappers
 
 In a java result, `mappers` reports where the mapper XML files went: a
@@ -112,6 +156,8 @@ took, and a count of the files outside the mapper patterns.
 | `no-zones` | One module: no zones are proposed. |
 | `over-max-parts` | More parts than `--max-parts`; they cannot fold further. |
 | `modules` | More modules than `--max-parts`: how many modules there are and how many do not remain as parts. |
+| `parts-by-name` | With `--parts-by-name`: how many parts `draft` made from file names, and how many files they hold. |
+| `no-parts-by-name` | With `--parts-by-name`: no first word has that many files under two or more of the names of layer directories. |
 | `layers` | At least half of the Java and Kotlin files sit in directories named like layers (`controller`, `service`, …); the parts follow packages, not layers. |
 | `exact-paths` | Files outside modules are listed in `watch` one by one; a directory pattern can replace them. |
 | `build-output` | Files under build-output names are counted because the written `watch` reaches them. |

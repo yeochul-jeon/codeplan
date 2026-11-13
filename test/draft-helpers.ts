@@ -108,7 +108,11 @@ export function expectDraftInvariants(
 
   // With the draft config in place, a second draft that takes languages and
   // roots from it gives the same output apart from where its inputs came from.
-  const again = runDraft(repo, args.includes("--max-parts") ? ["--max-parts", String(maxParts)] : []);
+  const byName = args.indexOf("--parts-by-name");
+  const again = runDraft(repo, [
+    ...(args.includes("--max-parts") ? ["--max-parts", String(maxParts)] : []),
+    ...(byName < 0 ? [] : args.slice(byName, byName + 2)),
+  ]);
   const { sources: _a, notes: _b, ...first } = result;
   const { sources: _c, notes: _d, ...second } = again;
   expect(second).toEqual(first);

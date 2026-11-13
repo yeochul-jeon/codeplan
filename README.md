@@ -54,7 +54,10 @@ node docs/codeplan/codeplan.mjs check
 ```
 
 `draft` proposes parts from the directories (and, in Java, from modules and
-packages) and prints a plan file and a config file. Between `draft` and
+packages) and prints a plan file and a config file. In a Java repository
+with layer directories (`controller`, `service` and so on),
+`draft --parts-by-name 10` also makes parts from the first word of file
+names; see [draft](skill/codeplan/docs/draft.md). Between `draft` and
 `update`, give the parts names and descriptions in `docs/codeplan/plan.json`
 and add `uses`, externals and scenarios; see the
 [plan file reference](skill/codeplan/docs/plan-file.md). Then open
