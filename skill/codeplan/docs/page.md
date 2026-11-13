@@ -41,7 +41,8 @@ HTML.
 The lines keep these rules, so that each one can be followed from its start
 to its finish:
 
-- Every line starts and finishes on the bottom side of a rectangle. It does
+- Every line starts and finishes on the bottom side of a rectangle, or on
+  the top side of a rectangle in the row right below the other one. It does
   not go through a rectangle or along a side of one. It may cross a zone
   frame.
 - Two lines run together only when both are use lines or both are

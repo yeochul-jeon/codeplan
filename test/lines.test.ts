@@ -83,6 +83,30 @@ describe("lines among themselves", () => {
     expect(together(ab, ba).runs).toEqual([]);
   });
 
+  test("a line to a rectangle in the row below finishes on its top side, and the other way starts there", () => {
+    const block = drawn({
+      parts: [
+        { id: "a", lines: 400, uses: ["c", "d"] }, { id: "b", lines: 400, uses: ["c"] },
+        { id: "c", lines: 400, uses: ["a"] }, { id: "d", lines: 400 },
+      ],
+      scenarios: [["b", "d", "a"]],
+    });
+    const [a, b, c, d] = block.layout.parts as [Block["layout"]["parts"][number], Block["layout"]["parts"][number], Block["layout"]["parts"][number], Block["layout"]["parts"][number]];
+    expect([a.y === b.y, c.y === d.y, c.y > a.y]).toEqual([true, true, true]);
+    const into = (from: string, to: string) => pointsOf(block, from, to).at(-1)!;
+    expect([into("a", "c")[1], into("b", "c")[1], into("a", "d")[1]]).toEqual([c.y, c.y, d.y]);
+    // The two lines into c share the place on its top side; the line out of c has another.
+    expect(into("a", "c")).toEqual(into("b", "c"));
+    const outOfC = pointsOf(block, "c", "a")[0]!;
+    expect(outOfC[1]).toBe(c.y);
+    expect(Math.abs(outOfC[0] - into("a", "c")[0])).toBeGreaterThanOrEqual(8);
+    // No line of this plan goes by the right margin.
+    const right = Math.max(b.x + b.w, d.x + d.w);
+    for (const l of [...block.layout.edges, ...block.layout.connectors]) {
+      expect(Math.max(...l.points.map((p) => p[0]))).toBeLessThanOrEqual(right);
+    }
+  });
+
   test("three parts that all use each other", () => {
     const block = drawn({ parts: [small("a", ["b", "c"]), small("b", ["a", "c"]), small("c", ["a", "b"])] });
     expect(block.layout.edges).toHaveLength(6);

@@ -116,8 +116,9 @@ interface Block {
   h: number;
   // The ends that come down out of the block's bottom.
   ends: End[];
-  // Places the block's contents with its top-left corner at (x, y).
-  place(x: number, y: number): void;
+  // Places the block's contents with its top-left corner at (x, y). `above`
+  // is the row whose gap is right above the block, if there is one.
+  place(x: number, y: number, above: object | null): void;
   // After place: the x where each end comes down.
   downAt(end: End): number;
 }
@@ -132,7 +133,7 @@ function packRows(
   blocks: Block[],
   width: number,
   setLevel: (end: End, y: number, row: object) => void,
-): { w: number; h: number; place(x: number, y: number): void } {
+): { w: number; h: number; last: object | null; place(x: number, y: number, above: object | null): void } {
   const rows: { blocks: Block[]; w: number; h: number; ends: number }[] = [];
   for (const block of blocks) {
     const row = rows.at(-1);
@@ -150,13 +151,14 @@ function packRows(
   return {
     w,
     h,
-    place(x: number, y: number) {
+    last: rows.at(-1) ?? null,
+    place(x: number, y: number, above: object | null) {
       let top = y;
-      for (const row of rows) {
+      for (const [i, row] of rows.entries()) {
         let left = x;
         const down: { end: End; x: number }[] = [];
         for (const block of row.blocks) {
-          block.place(left, top);
+          block.place(left, top, i === 0 ? above : rows[i - 1]!);
           for (const end of block.ends) down.push({ end, x: block.downAt(end) });
           left += block.w + GAP;
         }
@@ -235,13 +237,15 @@ export function layOut(
     return { id: p.id, x: 0, y: 0, w, h, label: { x: 0, y: 0, w: a, h: LABEL_HEIGHT } };
   });
   // A rectangle's ends sit on its bottom side, evenly apart.
+  const gapAbove = new Map<string, object | null>();
   const rectBlock = (rect: LayoutPart): Block => {
     const own = endsOf.get(rect.id) ?? [];
     return {
       w: rect.w,
       h: rect.h,
       ends: own,
-      place(x, y) {
+      place(x, y, above) {
+        gapAbove.set(rect.id, above);
         rect.x = x;
         rect.y = y;
         rect.label.x = x;
@@ -286,12 +290,14 @@ export function layOut(
       w: zone.w,
       h: zone.h,
       ends: own,
-      place(x, y) {
+      place(x, y, above) {
         zone.x = x;
         zone.y = y;
         zone.title.x = x + GAP;
         zone.title.y = y;
-        inner.place(x + GAP, y + TITLE_HEIGHT + GAP);
+        // Only the title is between the gap above the frame and the parts
+        // of the frame's first row.
+        inner.place(x + GAP, y + TITLE_HEIGHT + GAP, above);
         // The end with the highest level has the column furthest right, so
         // a level never crosses a column of its own zone.
         [...own]
@@ -309,7 +315,7 @@ export function layOut(
   });
 
   const all = packRows(blocks, blocks.length > 0 ? rowWidth(blocks) : 0, setLevel);
-  all.place(MARGIN, MARGIN);
+  all.place(MARGIN, MARGIN, null);
 
   // Externals: in plan order, in rows starting a GAP below every part and
   // frame and the levels below them, no wider than the parts above (or than
@@ -324,7 +330,7 @@ export function layOut(
     const extBlocks = externals.map(rectBlock);
     const rows = packRows(extBlocks, Math.max(all.w, rowWidth(extBlocks)), setLevel);
     const top = blocks.length > 0 ? all.h + GAP : 0;
-    rows.place(MARGIN, MARGIN + top);
+    rows.place(MARGIN, MARGIN + top, all.last);
     contentW = Math.max(all.w, rows.w);
     contentH = top + rows.h;
   }
@@ -357,10 +363,47 @@ export function layOut(
       return lower === a ? way : way.reverse();
     }
     if (a.row !== b.row) return null;
-    const at = (end: End) => end.column ?? end.x;
     const [left, right] = at(a) < at(b) ? [a, b] : [b, a];
     const way: Point[] = [...downTo(left), [at(left), left.level], [at(right), left.level], ...downTo(right).reverse()];
     return left === a ? way : way.reverse();
+  };
+
+  // An end and a rectangle right below its gap: the line goes along the
+  // end's level and straight down to the rectangle's top side. Every other
+  // upright piece in the gap is under an end of the row above, so the place
+  // on the top side is one that is GAP or more from each of those and from
+  // the places taken before; the lines of one kind and direction share it.
+  // Without such a place the line goes by the margin.
+  const at = (end: End) => end.column ?? end.x;
+  const placeOf = new Map<string, LayoutPart>([...parts, ...externals].map((r) => [r.id, r]));
+  const topEnds = new Map<string, number | null>();
+  const takenIn = new Map<object, number[]>();
+  const topEnd = (upper: End, id: string, order: number): number | null => {
+    const gap = gapAbove.get(id) ?? null;
+    if (gap === null || upper.row !== gap) return null;
+    const key = JSON.stringify([id, order]);
+    if (!topEnds.has(key)) {
+      const rect = placeOf.get(id)!;
+      const taken = takenIn.get(gap) ?? [...ends.filter((e) => e.row === gap).map(at)];
+      takenIn.set(gap, taken);
+      let found: number | null = null;
+      for (let x = rect.x + 1; x < rect.x + rect.w; x++) {
+        if (taken.some((t) => Math.abs(t - x) < GAP)) continue;
+        if (found === null || Math.abs(x - at(upper)) < Math.abs(found - at(upper))) found = x;
+      }
+      if (found !== null) taken.push(found);
+      topEnds.set(key, found);
+    }
+    return topEnds.get(key)!;
+  };
+  const below = (line: (typeof lines)[number], out: End, into: End): Point[] | null => {
+    for (const [upper, id, order, forward] of [[out, line.to, into.order, true], [into, line.from, out.order, false]] as const) {
+      const x = topEnd(upper, id, order);
+      if (x === null) continue;
+      const way: Point[] = [...downTo(upper), [at(upper), upper.level], [x, upper.level], [x, placeOf.get(id)!.y]];
+      return forward ? way : way.reverse();
+    }
+    return null;
   };
 
   // Any other line goes from its out end to the right margin, up or down a
@@ -368,7 +411,7 @@ export function layOut(
   // two ends, and each such line of that end takes it. The ends that get a
   // column are picked one at a time: the end with the most lines still
   // without one, the first such end when several have as many.
-  const nearWay = new Map(drawn.map((line) => [line, near(line.out, line.in)]));
+  const nearWay = new Map(drawn.map((line, i) => [line, near(line.out, line.in) ?? below(lines[i]!, line.out, line.in)]));
   const columnOf = new Map<(typeof drawn)[number], End>();
   for (;;) {
     const count = new Map<End, number>();

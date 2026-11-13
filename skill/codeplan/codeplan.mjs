@@ -3056,13 +3056,14 @@ function packRows(blocks, width, setLevel) {
   return {
     w,
     h,
-    place(x, y) {
+    last: rows.at(-1) ?? null,
+    place(x, y, above) {
       let top = y;
-      for (const row of rows) {
+      for (const [i, row] of rows.entries()) {
         let left = x;
         const down = [];
         for (const block of row.blocks) {
-          block.place(left, top);
+          block.place(left, top, i === 0 ? above : rows[i - 1]);
           for (const end of block.ends) down.push({ end, x: block.downAt(end) });
           left += block.w + GAP;
         }
@@ -3122,13 +3123,15 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
     const { w, h } = partSize(a, p2.lines);
     return { id: p2.id, x: 0, y: 0, w, h, label: { x: 0, y: 0, w: a, h: LABEL_HEIGHT } };
   });
+  const gapAbove = /* @__PURE__ */ new Map();
   const rectBlock = (rect) => {
     const own = endsOf.get(rect.id) ?? [];
     return {
       w: rect.w,
       h: rect.h,
       ends: own,
-      place(x, y) {
+      place(x, y, above) {
+        gapAbove.set(rect.id, above);
         rect.x = x;
         rect.y = y;
         rect.label.x = x;
@@ -3172,12 +3175,12 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
       w: zone.w,
       h: zone.h,
       ends: own,
-      place(x, y) {
+      place(x, y, above) {
         zone.x = x;
         zone.y = y;
         zone.title.x = x + GAP;
         zone.title.y = y;
-        inner.place(x + GAP, y + TITLE_HEIGHT + GAP);
+        inner.place(x + GAP, y + TITLE_HEIGHT + GAP, above);
         [...own].sort((a, b) => a.innerLevel - b.innerLevel).forEach((end, k) => {
           end.column = x + GAP + inner.w + GAP * (own.length - k);
         });
@@ -3190,7 +3193,7 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
     if (zone === "") blocks.push(rectBlock(part));
   });
   const all = packRows(blocks, blocks.length > 0 ? rowWidth(blocks) : 0, setLevel);
-  all.place(MARGIN, MARGIN);
+  all.place(MARGIN, MARGIN, null);
   const externals = externalInputs.map((e) => {
     const w = externalWidth(e);
     return { id: e.id, x: 0, y: 0, w, h: EXTERNAL_HEIGHT, label: { x: 0, y: 0, w, h: EXTERNAL_HEIGHT } };
@@ -3201,7 +3204,7 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
     const extBlocks = externals.map(rectBlock);
     const rows = packRows(extBlocks, Math.max(all.w, rowWidth(extBlocks)), setLevel);
     const top = blocks.length > 0 ? all.h + GAP : 0;
-    rows.place(MARGIN, MARGIN + top);
+    rows.place(MARGIN, MARGIN + top, all.last);
     contentW = Math.max(all.w, rows.w);
     contentH = top + rows.h;
   }
@@ -3225,12 +3228,42 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
       return lower === a ? way2 : way2.reverse();
     }
     if (a.row !== b.row) return null;
-    const at = (end) => end.column ?? end.x;
     const [left, right] = at(a) < at(b) ? [a, b] : [b, a];
     const way = [...downTo(left), [at(left), left.level], [at(right), left.level], ...downTo(right).reverse()];
     return left === a ? way : way.reverse();
   };
-  const nearWay = new Map(drawn.map((line) => [line, near(line.out, line.in)]));
+  const at = (end) => end.column ?? end.x;
+  const placeOf = new Map([...parts, ...externals].map((r) => [r.id, r]));
+  const topEnds = /* @__PURE__ */ new Map();
+  const takenIn = /* @__PURE__ */ new Map();
+  const topEnd = (upper, id, order) => {
+    const gap = gapAbove.get(id) ?? null;
+    if (gap === null || upper.row !== gap) return null;
+    const key = JSON.stringify([id, order]);
+    if (!topEnds.has(key)) {
+      const rect = placeOf.get(id);
+      const taken = takenIn.get(gap) ?? [...ends.filter((e) => e.row === gap).map(at)];
+      takenIn.set(gap, taken);
+      let found = null;
+      for (let x = rect.x + 1; x < rect.x + rect.w; x++) {
+        if (taken.some((t) => Math.abs(t - x) < GAP)) continue;
+        if (found === null || Math.abs(x - at(upper)) < Math.abs(found - at(upper))) found = x;
+      }
+      if (found !== null) taken.push(found);
+      topEnds.set(key, found);
+    }
+    return topEnds.get(key);
+  };
+  const below = (line, out, into) => {
+    for (const [upper, id, order, forward] of [[out, line.to, into.order, true], [into, line.from, out.order, false]]) {
+      const x = topEnd(upper, id, order);
+      if (x === null) continue;
+      const way = [...downTo(upper), [at(upper), upper.level], [x, upper.level], [x, placeOf.get(id).y]];
+      return forward ? way : way.reverse();
+    }
+    return null;
+  };
+  const nearWay = new Map(drawn.map((line, i) => [line, near(line.out, line.in) ?? below(lines[i], line.out, line.in)]));
   const columnOf = /* @__PURE__ */ new Map();
   for (; ; ) {
     const count2 = /* @__PURE__ */ new Map();
