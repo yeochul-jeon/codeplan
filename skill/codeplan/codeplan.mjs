@@ -3067,7 +3067,7 @@ function packRows(blocks, width, setLevel) {
           left += block.w + GAP;
         }
         down.sort((a, b) => b.x - a.x);
-        down.forEach((d, k) => setLevel(d.end, top + row.h + GAP * (k + 1)));
+        down.forEach((d, k) => setLevel(d.end, top + row.h + GAP * (k + 1), row));
         top += row.h + GAP * (row.ends + 1);
       }
     }
@@ -3098,7 +3098,18 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
     endsOf.set(id, list2);
     let end = list2.find((e) => e.order === order);
     if (!end) {
-      end = { order, x: 0, bottom: 0, innerLevel: null, column: null, level: 0, marginColumn: null };
+      end = {
+        order,
+        x: 0,
+        bottom: 0,
+        innerLevel: null,
+        column: null,
+        level: 0,
+        zone: null,
+        innerRow: null,
+        row: null,
+        marginColumn: null
+      };
       list2.push(end);
       list2.sort((a, b) => a.order - b.order);
       ends.push(end);
@@ -3130,8 +3141,9 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
       downAt: (end) => end.x
     };
   };
-  const setLevel = (end, y) => {
+  const setLevel = (end, y, row) => {
     end.level = y;
+    end.row = row;
   };
   const zoneNames = [...new Set(inputs.map((p2) => p2.zone ?? "").filter((z) => z !== ""))].sort(byCodeUnit);
   const zones = [];
@@ -3139,8 +3151,9 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
   for (const name of zoneNames) {
     const members = parts.filter((_, i) => inputs[i].zone === name).map(rectBlock);
     const own = members.flatMap((m) => m.ends);
-    const inner = packRows(members, rowWidth(members), (end, y) => {
+    const inner = packRows(members, rowWidth(members), (end, y, row) => {
       end.innerLevel = y;
+      end.innerRow = row;
     });
     const tw = titleWidth(name);
     const zone = {
@@ -3154,6 +3167,7 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
       title: { x: 0, y: 0, w: tw, h: TITLE_HEIGHT }
     };
     zones.push(zone);
+    for (const end of own) end.zone = zone;
     blocks.push({
       w: zone.w,
       h: zone.h,
@@ -3191,11 +3205,37 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
     contentW = Math.max(all.w, rows.w);
     contentH = top + rows.h;
   }
+  const downTo = (end) => end.column === null ? [[end.x, end.bottom]] : [[end.x, end.bottom], [end.x, end.innerLevel], [end.column, end.innerLevel]];
+  const near = (a, b) => {
+    if (a.zone !== null && a.zone === b.zone) {
+      if (a.innerRow === b.innerRow) {
+        const [left2, right2] = a.x < b.x ? [a, b] : [b, a];
+        const way3 = [[left2.x, left2.bottom], [left2.x, left2.innerLevel], [right2.x, left2.innerLevel], [right2.x, right2.bottom]];
+        return left2 === a ? way3 : way3.reverse();
+      }
+      const [upper, lower] = a.innerLevel < b.innerLevel ? [a, b] : [b, a];
+      const way2 = [
+        [lower.x, lower.bottom],
+        [lower.x, lower.innerLevel],
+        [upper.column, lower.innerLevel],
+        [upper.column, upper.innerLevel],
+        [upper.x, upper.innerLevel],
+        [upper.x, upper.bottom]
+      ];
+      return lower === a ? way2 : way2.reverse();
+    }
+    if (a.row !== b.row) return null;
+    const at = (end) => end.column ?? end.x;
+    const [left, right] = at(a) < at(b) ? [a, b] : [b, a];
+    const way = [...downTo(left), [at(left), left.level], [at(right), left.level], ...downTo(right).reverse()];
+    return left === a ? way : way.reverse();
+  };
+  const nearWay = new Map(drawn.map((line) => [line, near(line.out, line.in)]));
   const columnOf = /* @__PURE__ */ new Map();
   for (; ; ) {
     const count2 = /* @__PURE__ */ new Map();
     for (const line of drawn) {
-      if (columnOf.has(line)) continue;
+      if (columnOf.has(line) || nearWay.get(line) !== null) continue;
       count2.set(line.out, (count2.get(line.out) ?? 0) + 1);
       count2.set(line.in, (count2.get(line.in) ?? 0) + 1);
     }
@@ -3205,7 +3245,7 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
     }
     if (pick === null) break;
     for (const line of drawn) {
-      if (!columnOf.has(line) && (line.out === pick || line.in === pick)) columnOf.set(line, pick);
+      if (!columnOf.has(line) && nearWay.get(line) === null && (line.out === pick || line.in === pick)) columnOf.set(line, pick);
     }
   }
   const withColumn = ends.filter((end) => [...columnOf.values()].includes(end));
@@ -3216,8 +3256,10 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
   let height = contentH + 2 * MARGIN;
   if (width > RATIO * height) height = Math.ceil(width / RATIO);
   if (height > RATIO * width) width = Math.ceil(height / RATIO);
-  const wayOf = (end) => end.column === null ? [[end.x, end.bottom], [end.x, end.level]] : [[end.x, end.bottom], [end.x, end.innerLevel], [end.column, end.innerLevel], [end.column, end.level]];
+  const wayOf = (end) => [...downTo(end), [end.column ?? end.x, end.level]];
   const points = drawn.map((line) => {
+    const joined = nearWay.get(line);
+    if (joined) return straightened(joined);
     const x = columnOf.get(line).marginColumn;
     return [...wayOf(line.out), [x, line.out.level], [x, line.in.level], ...wayOf(line.in).reverse()];
   });
@@ -3228,6 +3270,13 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
     points: points[relations.edges.length + i]
   }));
   return { width, height, zones, parts, externals, edges, connectors };
+}
+function straightened(points) {
+  return points.filter((p2, i) => {
+    const [before, after] = [points[i - 1], points[i + 1]];
+    if (!before || !after) return true;
+    return !(before[0] === p2[0] && p2[0] === after[0] || before[1] === p2[1] && p2[1] === after[1]);
+  }).map((p2) => [p2[0], p2[1]]);
 }
 
 // src/cli.ts
