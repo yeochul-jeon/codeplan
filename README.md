@@ -113,6 +113,8 @@ workflow for it is in the [CI reference](skill/codeplan/docs/ci.md).
 Where there is no CI, or you cannot change it, nothing stops a pull request
 whose plan is out of date. `check` can still run from a pre-push hook in
 your own clone or on a schedule, and `update` and `summary` need neither.
+A script on a schedule can keep one record of each run, and `history` makes
+one HTML file from those records.
 See the [reference for use without CI](skill/codeplan/docs/without-ci.md).
 
 ## As a Claude Code skill
@@ -138,6 +140,7 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
 - [summary](skill/codeplan/docs/summary.md)
 - [CI](skill/codeplan/docs/ci.md)
 - [Without CI](skill/codeplan/docs/without-ci.md)
+- [history](skill/codeplan/docs/history.md)
 
 ## Known limits
 

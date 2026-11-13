@@ -5,6 +5,7 @@ codeplan is one file, `codeplan.mjs`. In a repository it lives at
 
 ```sh
 node docs/codeplan/codeplan.mjs <command> [--repo <dir>] [options]
+node docs/codeplan/codeplan.mjs history <records-dir>
 ```
 
 The repository is the current directory. `--repo <dir>` names another one;
@@ -22,11 +23,12 @@ standard error.
 | `summary` | Prints the plan as Markdown with a mermaid diagram; see [summary](summary.md). Writes nothing. |
 | `snapshot` | Prints what `check` finds as one JSON document; see [CI](ci.md). Writes nothing. |
 | `report` | Prints the state of the plan, and with `--base` the changes since a snapshot, as Markdown for a pull request; see [CI](ci.md). Writes nothing. |
+| `history <records-dir>` | Prints the records in a directory as one HTML file; see [history](history.md). Reads no repository. Writes nothing. |
 | `help` | Prints the usage. |
 
 | Option | Command | What it does |
 |---|---|---|
-| `--repo <dir>` | all | The repository to read. |
+| `--repo <dir>` | all but `history` | The repository to read. |
 | `--max-parts <n>` | `draft` | The most parts to propose (default 16). Decimal digits only, 1 or more. |
 | `--language <name>` | `draft` | `js` or `java`. Repeat for both. |
 | `--root <dir>` | `draft` | A source root to use instead of the language rules. Repeat for more. |
@@ -34,7 +36,9 @@ standard error.
 | `--base <file>` | `report` | A snapshot of the tree to compare with. |
 
 An option on a command it does not belong to, an unknown command or an
-unknown option give exit code 2 and the usage.
+unknown option give exit code 2 and the usage. `history` takes no option:
+an option, or anything but one directory, gives exit code 2 and one line
+without the usage.
 
 ## Exit codes
 
@@ -46,6 +50,7 @@ unknown option give exit code 2 and the usage.
 | `summary` | printed, with or without warnings, orphans, contested or unwatched files | — | an error in the plan file, no plan file, or the config or plan file cannot be read |
 | `snapshot` | printed, with or without findings and problems | — | the config cannot be used, or the plan file is not JSON |
 | `report` | printed, with or without findings and problems | — | as for `snapshot`, or the `--base` file cannot be used |
+| `history` | printed, with or without skipped files | — | not one directory given, an option given, the directory cannot be read, or no file in it is a snapshot |
 | `help` | always | — | — |
 
 ## What stops `update` and `check`

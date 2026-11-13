@@ -71,12 +71,15 @@ const tokens = (theme: Record<string, string>) =>
     .map(([k, v]) => `${k}: ${v};`)
     .join(" ");
 
-// Auto follows prefers-color-scheme; data-theme on <html> picks one.
-const STYLE = `
-:root { color-scheme: light dark; ${tokens(THEMES.light)} }
+// The token definitions, shared with the history file. Auto follows
+// prefers-color-scheme; data-theme on <html> picks one.
+export const THEME_STYLE = `:root { color-scheme: light dark; ${tokens(THEMES.light)} }
 @media (prefers-color-scheme: dark) { :root:not([data-theme]) { ${tokens(THEMES.dark)} } }
 :root[data-theme="light"] { color-scheme: light; ${tokens(THEMES.light)} }
-:root[data-theme="dark"] { color-scheme: dark; ${tokens(THEMES.dark)} }
+:root[data-theme="dark"] { color-scheme: dark; ${tokens(THEMES.dark)} }`;
+
+const STYLE = `
+${THEME_STYLE}
 html, body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font: 13px/1.4 system-ui, sans-serif; }
 main { padding: 16px; }
 #tools { display: flex; justify-content: flex-end; margin: 0 0 8px; }
@@ -110,7 +113,31 @@ button:disabled { opacity: 0.5; }
 `;
 
 // Applies a stored theme before the body is drawn.
-const EARLY = `try { var t = localStorage.getItem("codeplan-theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}`;
+export const EARLY = `try { var t = localStorage.getItem("codeplan-theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}`;
+
+// The theme button: auto, then light, then dark, then auto again. It is
+// made by the script that holds this text, in the element with id "tools",
+// with that script's html() function.
+export const THEME_BUTTON = `  var root = document.documentElement;
+  var themeButton = html("button", document.getElementById("tools"));
+  themeButton.type = "button";
+  themeButton.setAttribute("data-role", "theme");
+  themeButton.title = "Colour theme: auto follows the system setting";
+  function themeNow() {
+    var t = root.getAttribute("data-theme");
+    return t === "light" || t === "dark" ? t : "auto";
+  }
+  themeButton.textContent = themeNow();
+  themeButton.addEventListener("click", function () {
+    var next = { auto: "light", light: "dark", dark: "auto" }[themeNow()];
+    if (next === "auto") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", next);
+    themeButton.textContent = next;
+    try {
+      if (next === "auto") localStorage.removeItem("codeplan-theme");
+      else localStorage.setItem("codeplan-theme", next);
+    } catch (e) {}
+  });`;
 
 // The viewer: reads the data block and draws the layout as SVG, then the
 // task pane when the plan has tasks and the scenario walk-through when it
@@ -206,26 +233,7 @@ const VIEWER = `
   if (title) document.title = title;
 
   // The theme button: auto, then light, then dark, then auto again.
-  var root = document.documentElement;
-  var themeButton = html("button", document.getElementById("tools"));
-  themeButton.type = "button";
-  themeButton.setAttribute("data-role", "theme");
-  themeButton.title = "Colour theme: auto follows the system setting";
-  function themeNow() {
-    var t = root.getAttribute("data-theme");
-    return t === "light" || t === "dark" ? t : "auto";
-  }
-  themeButton.textContent = themeNow();
-  themeButton.addEventListener("click", function () {
-    var next = { auto: "light", light: "dark", dark: "auto" }[themeNow()];
-    if (next === "auto") root.removeAttribute("data-theme");
-    else root.setAttribute("data-theme", next);
-    themeButton.textContent = next;
-    try {
-      if (next === "auto") localStorage.removeItem("codeplan-theme");
-      else localStorage.setItem("codeplan-theme", next);
-    } catch (e) {}
-  });
+${THEME_BUTTON}
 
   var scenarios = plan.scenarios || [];
   var tasks = data.tasks || [];

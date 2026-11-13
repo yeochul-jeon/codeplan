@@ -1,8 +1,10 @@
-// Command line: `check`, `update`, `draft` and `help`.
+// Command line: `check`, `update`, `draft`, `summary`, `snapshot`, `report`,
+// `history` and `help`.
 import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { SettingsError, readConfig, type Config } from "./config.js";
 import { DraftError, draft } from "./draft.js";
+import { historyHtml, readRecords } from "./history.js";
 import { isPlainFile, measure, unownedTest, type Measurement } from "./measure.js";
 import { planPath, readPlanFile, type PlanPart } from "./plan.js";
 import { readSnapshot, reportText, snapshotText, takeSnapshot, type PageState, type Snapshot } from "./report.js";
@@ -38,6 +40,7 @@ export type CheckResult =
     };
 
 const USAGE = `Usage: node codeplan.mjs <command> [--repo <dir>] [options]
+       node codeplan.mjs history <records-dir>
 
 Commands:
   check   Measure the repository against its plan and report files no part
@@ -58,6 +61,11 @@ Commands:
   report  Print the state of the plan as Markdown for a pull request. With
           --base, also what changed since that snapshot. Writes nothing and
           always exits with 0 when it printed; check is what fails CI.
+  history Print the records in a directory as one HTML file on standard
+          output: a table of the parts that changed from each record to
+          the next. A record is a file that holds what snapshot printed.
+          Takes the directory and no option, and reads no repository.
+          Writes nothing.
   help    Show this text.
 
 Options:
@@ -88,12 +96,15 @@ unwatched files do not change it); 2 an error in the plan, no plan file, or
 the config or plan file cannot be read.
 Exit codes for snapshot and report: 0 printed; 2 the config cannot be used,
 the plan file is not JSON, or the --base file cannot be used.
+Exit codes for history: 0 printed (skipped files do not change it); 2 not
+one directory given, an option given, the directory cannot be read, or no
+file in it is a snapshot.
 `;
 
 const LIST_LIMIT = 30;
 
 // The commands and options the command line takes.
-export const COMMANDS = ["check", "update", "draft", "summary", "snapshot", "report", "help"];
+export const COMMANDS = ["check", "update", "draft", "summary", "snapshot", "report", "history", "help"];
 export const OPTIONS = ["--repo", "--max-parts", "--language", "--root", "--mermaid", "--base"];
 
 // What is at the page place: nothing, a codeplan page, or something else.
@@ -384,6 +395,26 @@ function report(repo: string, baseFile: string | undefined): RunResult {
   return "snapshot" in head ? { code: 0, stdout: reportText(head, base), stderr: "" } : head;
 }
 
+// history reads a records directory and nothing else. Its errors are one
+// line, without the usage text.
+function history(args: readonly string[], cwd: string): RunResult {
+  const fail = (message: string, stderr = ""): RunResult => ({ code: 2, stdout: "", stderr: `${stderr}codeplan: ${message}\n` });
+  const option = args.find((arg) => arg.startsWith("-"));
+  if (option !== undefined) return fail(`history takes no options, and ${option} was given`);
+  if (args.length !== 1) return fail("history takes one records directory");
+  const dir = resolve(cwd, args[0]!);
+  if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return fail(`records directory not found: ${dir}`);
+  let read: ReturnType<typeof readRecords>;
+  try {
+    read = readRecords(dir);
+  } catch (e) {
+    return fail(`the records directory ${dir} cannot be read: ${(e as Error).message}`);
+  }
+  const stderr = read.skipped.map((s) => `history: skipped ${s.file}: ${s.reason}\n`).join("");
+  if (!read.records.some((r) => r.snapshot !== null)) return fail(`no file in ${dir} is a snapshot`, stderr);
+  return { code: 0, stdout: historyHtml(read.records, read.skipped), stderr };
+}
+
 function summary(repo: string, mermaid: boolean): RunResult {
   const result = check(repo, "skip");
   if (result.kind === "error") return { code: 2, stdout: "", stderr: `codeplan: ${result.message}\n` };
@@ -460,6 +491,7 @@ export function run(argv: readonly string[], cwd: string): RunResult {
     stdout: "",
     stderr: `codeplan: ${message}\n\n${USAGE}`,
   });
+  if (argv[0] === "history") return history(argv.slice(1), cwd);
   let command: string | undefined;
   let repo = cwd;
   let maxParts: string | undefined;
@@ -491,10 +523,12 @@ export function run(argv: readonly string[], cwd: string): RunResult {
       return usageError(`unknown option ${arg}`);
     } else if (command === undefined) {
       command = arg;
-    } else {
+    } else if (command !== "history") {
       return usageError(`unexpected argument ${arg}`);
     }
   }
+  // history after an option: the option is the error.
+  if (command === "history") return history(argv, cwd);
   if (command === "help") return { code: 0, stdout: USAGE, stderr: "" };
   if (command === undefined || !COMMANDS.includes(command)) {
     return usageError(command === undefined ? "no command given" : `unknown command ${command}`);

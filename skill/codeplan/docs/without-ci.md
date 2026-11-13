@@ -27,43 +27,60 @@ chmod +x .git/hooks/pre-push
 
 ## Checking on a schedule
 
-A script can run `check` in a clone at fixed times and keep a record of
-what it found. It stops nothing: a plan that is out of date is merged as
-before, and the record shows it afterwards.
+A script can run `snapshot` in a clone at fixed times and keep what it
+prints, one file for each run. It stops nothing: a plan that is out of
+date is merged as before, and the records show it afterwards.
 
 ```sh
 #!/bin/sh
-# Usage: sh codeplan-record.sh <clone> <records>
+# Usage: sh codeplan-record.sh <clone> <records> [<name>]
 clone=$1
 records=$2
-day=$(date +%Y-%m-%d)
-mkdir -p "$records"
-cd "$clone" || exit 2
-git pull --quiet --ff-only || exit 2
-
-node docs/codeplan/codeplan.mjs check > /dev/null 2>&1
-code=$?
-if [ -f "$records/base.json" ]; then
-  node docs/codeplan/codeplan.mjs report --base "$records/base.json" > "$records/report-$day.md"
-else
-  node docs/codeplan/codeplan.mjs report > "$records/report-$day.md"
+name=${3:-$(date -u +%Y%m%dT%H%M%SZ)}
+mkdir -p "$records" || exit 2
+if [ -e "$records/$name.json" ] || [ -e "$records/$name.failed" ]; then
+  echo "codeplan-record: $records already has a record named $name" >&2
+  exit 2
 fi
-printf '\ncheck exit code: %s\n' "$code" >> "$records/report-$day.md"
-node docs/codeplan/codeplan.mjs snapshot > "$records/base.json.new" && mv "$records/base.json.new" "$records/base.json"
+cd "$clone" || exit 2
+out=$records/$name.out.tmp
+err=$records/$name.err.tmp
+if ! git pull --quiet --ff-only 2> "$err"; then
+  mv "$err" "$records/$name.failed"
+  exit 2
+fi
+if node docs/codeplan/codeplan.mjs snapshot > "$out" 2> "$err"; then
+  mv "$out" "$records/$name.json"
+  rm -f "$err"
+else
+  mv "$err" "$records/$name.failed"
+  rm -f "$out"
+  exit 1
+fi
 ```
 
 - `<clone>` is a clone used only for this, so that the pull has nothing to
   merge. `<records>` is a directory outside the clone. Give both as
   absolute paths.
-- The script does not run `update`. It reports the plan file and the page
+- The script does not run `update`. It records the plan file and the page
   as they are committed.
-- Each run writes `report-<date>.md`: the state of the plan, the parts that
-  changed since the run before (see [CI](ci.md) for the blocks of a
-  report), and the exit code of `check` on the last line. Then it replaces
-  `base.json` with a snapshot of the tree it just read. The first run has
-  no `base.json` and writes the state alone.
-- When the pull fails, the script ends with exit code 2 and writes no
-  report.
+- Each run leaves one record, `<name>.json`: what `snapshot` printed. The
+  name is the UTC time of the run unless a third argument gives another.
+- When `snapshot` exits with something other than 0 (a config file that
+  cannot be read, for example), the run leaves `<name>.failed` with what
+  `snapshot` wrote on standard error, and the script exits with 1.
+- When the pull fails, `snapshot` does not run. The run leaves
+  `<name>.failed` with what git wrote on standard error, and the script
+  exits with 2.
+- A record is written under another name and then renamed, so the
+  directory never holds half of a `.json` or `.failed` file.
+- When the directory already has a record of that name, the script exits
+  with 2 before it does anything and leaves the record as it is. It takes
+  no lock: do not start two runs on the same records directory at the same
+  time.
+- A script of an earlier version of this reference left `base.json` and
+  `report-<date>.md` in the directory. Move `base.json` away or remove it:
+  `history` reads it as a record named `base`.
 
 A line for cron that runs it every Monday at 07:00:
 
@@ -73,6 +90,17 @@ A line for cron that runs it every Monday at 07:00:
 
 cron starts commands with a short `PATH`. If `node` or `git` is not found,
 set `PATH` at the top of the script.
+
+`history` makes one HTML file from the records:
+
+```sh
+node docs/codeplan/codeplan.mjs history /path/to/records > /path/to/records/history.html
+```
+
+The file can stay in the records directory: `history` reads only names
+that end in `.json` or `.failed`. It has a table of the parts that changed
+from record to record and says in which records the plan was out of date;
+see [history](history.md).
 
 ## Only the page and the summary
 

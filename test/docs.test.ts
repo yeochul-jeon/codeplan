@@ -290,39 +290,76 @@ describe("the examples for use without CI", () => {
     expect(run(["check"], repo).code).toBe(0);
   });
 
-  test("the schedule script writes a report and a new base, and runs to its end when check fails", () => {
-    const pull = "git pull --quiet --ff-only || exit 2\n";
+  test("the schedule script leaves one record for each run, and history reads them", () => {
+    const pull = "git pull --quiet --ff-only";
     const shown = firstBlock("## Checking on a schedule");
     expect(shown.startsWith("#!/bin/sh\n")).toBe(true);
-    // The test has no remote, so the pull line is left out.
-    expect(shown).toContain(pull);
-    const repo = planned();
+    expect(shown).toContain(`if ! ${pull} 2> "$err"; then`);
+    expect(shown).not.toMatch(/pipefail|\[\[|\bfunction\b|\blocal\b/);
+    const repo = makeRepo({
+      "package.json": lines(1),
+      "src/shop/cart.ts": lines(3),
+      "src/shop/pay.ts": lines(2),
+      "src/auth/login.ts": lines(4),
+      "docs/codeplan/plan.json": JSON.stringify({
+        format: 1,
+        name: "",
+        about: "",
+        parts: [
+          { id: "shop", name: "", about: "", paths: ["src/shop/**"] },
+          { id: "auth", name: "", about: "", paths: ["src/auth/**"] },
+        ],
+      }),
+      "docs/codeplan/codeplan.mjs": read(join(skill, "codeplan.mjs")),
+    });
+    expect(run(["update"], repo).code).toBe(0);
     const records = join(makeRepo({}), "records");
-    const script = join(makeRepo({ "codeplan-record.sh": shown.replace(pull, "") }), "codeplan-record.sh");
-    const report = () => {
-      const names = readdirSync(records).sort();
-      expect(names).toHaveLength(2);
-      expect(names[0]).toBe("base.json");
-      expect(names[1]).toMatch(/^report-\d{4}-\d{2}-\d{2}\.md$/);
-      return read(join(records, names[1]!));
-    };
-    const base = () => JSON.parse(read(join(records, "base.json"))) as { snapshot: number; parts: { id: string; files: number }[] };
+    // The test has no remote: the pull is a command that does nothing, or
+    // one that fails. The test gives each run its name.
+    const scripts = makeRepo({
+      "record.sh": shown.replace(pull, "true"),
+      "no-pull.sh": shown.replace(pull, "{ echo 'pull failed here' >&2; false; }"),
+    });
+    const record = (name: string, script = "record.sh") => sh(repo, join(scripts, script), repo, records, name).status;
+    const names = () => readdirSync(records).sort();
 
-    // The first run has no base: the state alone.
-    const first = sh(repo, script, repo, records);
-    expect(first.status, first.stderr).toBe(0);
-    expect(report()).toBe("## codeplan\n\ncheck: ok\n\n### Tasks\n\n| Task | Status | Files |\n|---|---|---|\n| refunds | doing | 0 of 1 |\n| basket-total | done | 1 of 1 |\n\ncheck exit code: 0\n");
-    expect(base().snapshot).toBe(1);
-    expect(base().parts.find((p) => p.id === "pay")!.files).toBe(1);
+    expect(record("t1")).toBe(0);
+    writeFileSync(join(repo, "src/misc.ts"), lines(1));
+    expect(record("t2")).toBe(0);
+    writeFileSync(join(repo, "codeplan.json"), "{");
+    expect(record("t3")).toBe(1);
+    expect(names()).toEqual(["t1.json", "t2.json", "t3.failed"]);
+    expect(read(join(records, "t3.failed")).split("\n")[0]).toBe(run(["snapshot"], repo).stderr.split("\n")[0]);
 
-    // New code and no update: check exits with 1 and the script goes on.
-    writeFileSync(join(repo, "src/pay/refund.ts"), lines(6));
-    const second = sh(repo, script, repo, records);
-    expect(second.status, second.stderr).toBe(0);
-    expect(report()).toContain("| pay | 1 → 2 | 9 → 15 | changed |");
-    expect(report()).toContain("page outdated");
-    expect(report().endsWith("\ncheck exit code: 1\n")).toBe(true);
-    expect(base().parts.find((p) => p.id === "pay")!.files).toBe(2);
+    // A name that is taken: nothing is written over.
+    const first = read(join(records, "t1.json"));
+    expect(record("t1")).toBe(2);
+    expect(read(join(records, "t1.json"))).toBe(first);
+    expect(record("t3")).toBe(2);
+    expect(names()).toEqual(["t1.json", "t2.json", "t3.failed"]);
+
+    const columns = (html: string) => [...html.matchAll(/<th data-record="([^"]*)"(?: data-marks="([^"]*)")?>/g)].map((m) => [m[1], m[2]]);
+    const out = run(["history", records], repo);
+    expect(out).toMatchObject({ code: 0, stderr: "" });
+    expect(columns(out.stdout)).toEqual([["t1", undefined], ["t2", "plan page"], ["t3", "not-measured"]]);
+    for (const sentence of ["The plan was out of date in t2.", "The page was outdated in t2.", "Not measured: t3."]) {
+      expect(out.stdout).toContain(`<p>${sentence}</p>`);
+    }
+
+    // A pull that fails leaves a marker file too.
+    expect(record("t4", "no-pull.sh")).toBe(2);
+    expect(names()).toEqual(["t1.json", "t2.json", "t3.failed", "t4.failed"]);
+    expect(read(join(records, "t4.failed")).split("\n")[0]).toBe("pull failed here");
+    const after = run(["history", records], repo);
+    expect(columns(after.stdout).map((c) => c[0])).toEqual(["t1", "t2", "t3", "t4"]);
+    expect(columns(after.stdout).slice(2).map((c) => c[1])).toEqual(["not-measured", "not-measured"]);
+    expect(after.stdout).toContain("<p>Not measured: t3, t4.</p>");
+
+    // The history command line the doc shows, with its paths.
+    const line = [...text.matchAll(/```sh\n([\s\S]*?)```/g)].map((m) => m[1]!).find((script) => script.includes(" history "))!;
+    expect(sh(repo, "-e", "-c", line.replaceAll("/path/to/records", records)).status).toBe(0);
+    expect(read(join(records, "history.html"))).toBe(after.stdout);
+    expect(run(["history", records], repo).stdout).toBe(after.stdout);
   });
 });
 

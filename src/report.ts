@@ -10,7 +10,7 @@ import { STATUSES, type Diagnostic, type PlanTask, type Status } from "./validat
 export const SNAPSHOT_FORMAT = 1;
 // Raised when a change makes the same tree measure differently.
 export const RULES = 1;
-const LIST_LIMIT = 30;
+export const LIST_LIMIT = 30;
 
 export type PageState = "ok" | "outdated" | "missing" | "foreign" | "not-checked";
 
@@ -38,7 +38,7 @@ export interface Snapshot {
   diagnostics: (Diagnostic & { fix: string })[];
 }
 
-interface SnapshotTask {
+export interface SnapshotTask {
   id: string;
   status: Status | null;
   makes: string[];
@@ -117,6 +117,11 @@ export function readSnapshot(text: string): Snapshot {
   } catch {
     throw new Error("it is not JSON");
   }
+  return shapedSnapshot(value);
+}
+
+// A parsed JSON value as a snapshot. Throws an Error that says what is wrong.
+export function shapedSnapshot(value: unknown): Snapshot {
   if (!isObj(value)) throw new Error("it is not a snapshot");
   if (value.snapshot !== SNAPSHOT_FORMAT) {
     throw new Error(`its snapshot format is ${JSON.stringify(value.snapshot)}, and this codeplan reads ${SNAPSHOT_FORMAT}`);
@@ -167,7 +172,7 @@ function list(items: string[]): string {
   return shown.join("\n");
 }
 
-function statusLine(head: Snapshot): string {
+export function statusLine(head: Snapshot): string {
   const errors = head.diagnostics.filter((d) => d.severity === "error").length;
   const counted: [number, string][] = [
     [errors, "errors"],
@@ -184,7 +189,27 @@ function statusLine(head: Snapshot): string {
   return reasons.length === 0 ? "check: ok" : `check: fails (${reasons.join(", ")})`;
 }
 
-const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+// Equal by value: objects key by key in any order, arrays item by item in
+// order.
+export function sameValue(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => sameValue(item, b[i]));
+  }
+  if (isObj(a) && isObj(b)) {
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every((k) => k in b && sameValue(a[k], b[k]));
+  }
+  return a === b;
+}
+
+// The config keys a snapshot has; any other key in a file is not compared.
+export const configOf = ({ config }: Snapshot) => ({
+  languages: config.languages,
+  watch: config.watch,
+  skip: config.skip,
+  roots: config.roots,
+  tests: config.tests,
+});
 
 // A table of at most LIST_LIMIT data rows, then how many rows were left out.
 function table(head: string, rows: string[]): string[] {
@@ -194,69 +219,107 @@ function table(head: string, rows: string[]): string[] {
   return blocks;
 }
 
-const taskRow = (t: SnapshotTask, change?: string) =>
-  `| ${plain(t.id)} | ${t.status ?? ""} | ${filesCell(t)} |${change === undefined ? "" : ` ${change} |`}`;
+const taskRow = (t: SnapshotTask) => `| ${plain(t.id)} | ${t.status ?? ""} | ${filesCell(t)} |`;
 
-// What changed in the tasks between base and head, as blocks.
-function taskChanges(head: Snapshot, base: Snapshot): string[] {
-  if (base.plan === "invalid" || head.plan === "invalid") {
-    return ["The plan has errors, so task changes are not shown."];
-  }
-  if (base.tasks.length === 0 && head.tasks.length === 0) return [];
+// The tasks that are new, changed or removed between base and head: for
+// each, the cells Task, Status, Files and Change as they are, not yet
+// written for Markdown.
+export function taskChanges(head: Snapshot, base: Snapshot): string[][] {
   const before = new Map(base.tasks.map((t) => [t.id, t]));
   const after = new Set(head.tasks.map((t) => t.id));
   const paths = (list: string[]) => [...new Set(list)].sort(byCodeUnit);
   const counts = (t: SnapshotTask) => `${t.makes.length - t.missing.length} of ${t.makes.length}`;
-  const rows: string[] = [];
+  const rows: string[][] = [];
   for (const t of head.tasks) {
     const b = before.get(t.id);
     if (b === undefined) {
-      rows.push(taskRow(t, "new"));
-    } else if (b.status !== t.status || !sameJson(paths(b.makes), paths(t.makes)) || !sameJson(paths(b.missing), paths(t.missing))) {
-      rows.push(`| ${plain(t.id)} | ${b.status ?? ""} → ${t.status ?? ""} | ${counts(b)} → ${counts(t)} | changed |`);
+      rows.push([t.id, t.status ?? "", filesCell(t), "new"]);
+    } else if (b.status !== t.status || !sameValue(paths(b.makes), paths(t.makes)) || !sameValue(paths(b.missing), paths(t.missing))) {
+      rows.push([t.id, `${b.status ?? ""} → ${t.status ?? ""}`, `${counts(b)} → ${counts(t)}`, "changed"]);
     }
   }
-  for (const b of base.tasks) if (!after.has(b.id)) rows.push(taskRow(b, "removed"));
-  return rows.length === 0 ? ["No task changed."] : table("| Task | Status | Files | Change |", rows);
+  for (const b of base.tasks) if (!after.has(b.id)) rows.push([b.id, b.status ?? "", filesCell(b), "removed"]);
+  return rows;
+}
+
+// Whether the rules differ between base and head: the config, or the paths
+// of a part both have.
+export function rulesDiffer(head: Snapshot, base: Snapshot): boolean {
+  const before = new Map(base.parts.map((p) => [p.id, p]));
+  return (
+    !sameValue(configOf(base), configOf(head)) ||
+    head.parts.some((p) => before.has(p.id) && !sameValue(before.get(p.id)!.paths, p.paths))
+  );
+}
+
+export interface PartChange {
+  id: string;
+  files: string;
+  lines: string;
+  change: "new" | "changed" | "planned, has code" | "removed";
+  // Lines in head less lines in base, for a part both have.
+  by: number | null;
+}
+
+// What changed between base and head. `why` says which side stops the
+// comparison. `tasks` is null when neither side has a task.
+export type Comparison =
+  | { compared: false; why: "no-plan" | "base" | "head" }
+  | { compared: true; parts: PartChange[]; rulesDiffer: boolean; tasks: "invalid" | string[][] | null };
+
+export function compare(head: Snapshot, base: Snapshot): Comparison {
+  if (base.plan === "missing") return { compared: false, why: "no-plan" };
+  if (!base.complete || !head.complete) return { compared: false, why: base.complete ? "head" : "base" };
+  const before = new Map(base.parts.map((p) => [p.id, p]));
+  const after = new Set(head.parts.map((p) => p.id));
+  const parts: PartChange[] = [];
+  for (const p of head.parts) {
+    const b = before.get(p.id);
+    if (b === undefined) {
+      parts.push({ id: p.id, files: `${p.files}`, lines: `${p.lines}`, change: "new", by: null });
+    } else if ((b.planned && !p.planned) || b.files !== p.files || b.lines !== p.lines) {
+      const change = b.planned && p.files >= 1 ? "planned, has code" : "changed";
+      parts.push({ id: p.id, files: `${b.files} → ${p.files}`, lines: `${b.lines} → ${p.lines}`, change, by: p.lines - b.lines });
+    }
+  }
+  for (const b of base.parts) {
+    if (!after.has(b.id)) parts.push({ id: b.id, files: `${b.files}`, lines: `${b.lines}`, change: "removed", by: null });
+  }
+  const tasks =
+    base.plan === "invalid" || head.plan === "invalid"
+      ? "invalid"
+      : base.tasks.length === 0 && head.tasks.length === 0
+        ? null
+        : taskChanges(head, base);
+  return { compared: true, parts, rulesDiffer: rulesDiffer(head, base), tasks };
 }
 
 // The blocks under "### Changes", and whether the rules differ between
 // base and head (a config or pattern change).
 function changes(head: Snapshot, base: Snapshot): { blocks: string[]; rulesDiffer: boolean } {
-  if (base.plan === "missing") {
-    return { blocks: ["No plan in the base, so there is nothing to compare."], rulesDiffer: false };
+  const found = compare(head, base);
+  if (!found.compared) {
+    const block =
+      found.why === "no-plan"
+        ? "No plan in the base, so there is nothing to compare."
+        : `Measurement is incomplete in the ${found.why}, so changes are not shown.`;
+    return { blocks: [block], rulesDiffer: false };
   }
-  if (!base.complete || !head.complete) {
-    const side = base.complete ? "head" : "base";
-    return { blocks: [`Measurement is incomplete in the ${side}, so changes are not shown.`], rulesDiffer: false };
-  }
-  const before = new Map(base.parts.map((p) => [p.id, p]));
-  const after = new Map(head.parts.map((p) => [p.id, p]));
-  const rows: string[] = [];
-  for (const p of head.parts) {
-    const b = before.get(p.id);
-    if (b === undefined) {
-      rows.push(`| ${p.id} | ${p.files} | ${p.lines} | new |`);
-    } else if ((b.planned && !p.planned) || b.files !== p.files || b.lines !== p.lines) {
-      const change = b.planned && p.files >= 1 ? "planned, has code" : "changed";
-      rows.push(`| ${p.id} | ${b.files} → ${p.files} | ${b.lines} → ${p.lines} | ${change} |`);
-    }
-  }
-  for (const b of base.parts) {
-    if (!after.has(b.id)) rows.push(`| ${b.id} | ${b.files} | ${b.lines} | removed |`);
-  }
+  const rows = found.parts.map((p) => `| ${p.id} | ${p.files} | ${p.lines} | ${p.change} |`);
   const blocks =
     rows.length === 0
       ? ["No part changed."]
       : [["| Part | Files | Lines | Change |", "|---|---|---|---|", ...rows].join("\n")];
-  const rulesDiffer =
-    !sameJson(base.config, head.config) ||
-    head.parts.some((p) => before.has(p.id) && !sameJson(before.get(p.id)!.paths, p.paths));
-  if (rulesDiffer) {
+  if (found.rulesDiffer) {
     blocks.push("The config or part patterns changed, so some changes come from new rules, not new code.");
   }
-  blocks.push(...taskChanges(head, base));
-  return { blocks, rulesDiffer };
+  if (found.tasks === "invalid") {
+    blocks.push("The plan has errors, so task changes are not shown.");
+  } else if (found.tasks !== null) {
+    const taskRows = found.tasks.map(([id, ...cells]) => `| ${plain(id!)} | ${cells.join(" | ")} |`);
+    blocks.push(...(taskRows.length === 0 ? ["No task changed."] : table("| Task | Status | Files | Change |", taskRows)));
+  }
+  return { blocks, rulesDiffer: found.rulesDiffer };
 }
 
 // Files that a wide pattern took into a part from a directory the base had

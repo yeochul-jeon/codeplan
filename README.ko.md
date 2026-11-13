@@ -114,6 +114,8 @@ CI가 없거나 CI를 바꿀 수 없는 곳에서는 계획이 최신 상태가 
 request를 아무것도 막지 않습니다. 그래도 `check`는 자기 복제본의 pre-push
 훅에서나 정해진 주기로 돌릴 수 있습니다. `update`와 `summary`는 CI나 훅
 없이 언제든 돌릴 수 있습니다.
+정해진 주기로 도는 스크립트는 실행마다 기록 하나를 남길 수 있고,
+`history`는 그 기록들로 HTML 파일 하나를 만듭니다.
 [CI 없이 쓰기 참고 문서](skill/codeplan/docs/without-ci.md)를 보십시오.
 
 ## Claude Code 스킬로
@@ -140,6 +142,7 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
 - [summary](skill/codeplan/docs/summary.md)
 - [CI](skill/codeplan/docs/ci.md)
 - [CI 없이](skill/codeplan/docs/without-ci.md)
+- [history](skill/codeplan/docs/history.md)
 
 ## 알려진 제한
 

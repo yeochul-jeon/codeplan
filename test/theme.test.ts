@@ -14,7 +14,7 @@ const TOKENS = [
 const TEXT_PAIRS = [["text", "bg"], ["text", "part-fill"], ["text", "ext-fill"], ["zone-title", "zone-fill"], ["text-dim", "bg"], ["control-text", "control-fill"]];
 const LINE_PAIRS = [
   ["part-line", "bg"], ["part-line", "zone-fill"], ["ext-line", "bg"], ["zone-line", "bg"], ["edge", "bg"], ["edge", "zone-fill"],
-  ["connector", "bg"], ["connector", "zone-fill"], ["active", "bg"], ["active", "zone-fill"], ["control-line", "bg"],
+  ["connector", "bg"], ["connector", "zone-fill"], ["active", "bg"], ["active", "zone-fill"], ["active", "part-fill"], ["control-line", "bg"],
 ];
 
 // WCAG 2 relative luminance and contrast ratio.

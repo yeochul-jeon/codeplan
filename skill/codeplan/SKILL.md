@@ -30,6 +30,7 @@ to this file:
 - [CI](docs/ci.md): a pull request workflow with `snapshot` and `report`
 - [without CI](docs/without-ci.md): a pre-push hook, a check on a schedule,
   and a plan that is not committed
+- [history](docs/history.md): the records of a schedule as one HTML file
 
 ## When codeplan fits
 
@@ -273,6 +274,11 @@ stops no pull request. [Without CI](docs/without-ci.md) shows a pre-push
 hook, a script for a schedule, and how to keep the plan out of the
 commits. Do not install the hook or the schedule yourself: show the person
 the commands and ask whether they want them.
+
+When there is a directory of records from such a schedule,
+`node docs/codeplan/codeplan.mjs history <records-dir> > history.html`
+prints one HTML file with a table of the parts that changed from record to
+record; see [history](docs/history.md).
 
 ## Moving to a new version of codeplan.mjs
 
