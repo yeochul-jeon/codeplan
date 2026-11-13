@@ -297,7 +297,7 @@ function recordBlocks(column: Column): string[] {
   return blocks;
 }
 
-// A cell with text is told from an empty one by its fill alone; more and
+// A cell with text is told from an empty one by its fill and its line; more and
 // fewer lines differ in the sign only. The chosen column has the active
 // colour and a heavier weight.
 const STYLE = `
