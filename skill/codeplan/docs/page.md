@@ -41,10 +41,11 @@ HTML.
 The lines keep these rules, so that each one can be followed from its start
 to its finish:
 
-- Every line starts and finishes on the bottom side of a rectangle, or on
-  the top side of a rectangle in the row right below the other one. It does
-  not go through a rectangle or along a side of one. It may cross a zone
-  frame.
+- Every line starts and finishes on the bottom side of a rectangle. The
+  one exception: when the rectangle at one end of a line is in the row right
+  below the rectangle at its other end, that end can be on the top side of
+  the lower rectangle. A line does not go through a rectangle or along a
+  side of one. It may cross a zone frame.
 - Two lines run together only when both are use lines or both are
   connectors, and they start at the same rectangle or finish at the same
   rectangle. Lines that start at one rectangle run together from their
@@ -56,8 +57,8 @@ to its finish:
 - A use line and a connector never run together. The two lines of parts
   that use each other never run together. Two connectors between the same
   two places, in the same direction, have the same points.
-- Where two other lines go the same way they are 8 or more apart. They may
-  cross or touch at one point.
+- Where two lines that do not run together go the same way, they are 8 or
+  more apart. They may cross or touch at one point.
 - On a rectangle, the ends of lines are 8 or more apart, except the ends of
   lines that run together there.
 
