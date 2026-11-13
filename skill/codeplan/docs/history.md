@@ -77,9 +77,11 @@ Each column is a record and each row is a part.
 - A cell has text when the part changed since the measured record before:
   `+12` or `-3` for the change in lines, `+0` when the files changed and
   the line count did not, `new` for a part that was not there before, and
-  `removed` for one that is gone. An empty cell means no change. More and
-  fewer lines differ by the sign alone, not by colour.
-- A part with no change in any column has no row. Such parts are named
+  `removed` for one that is gone. An empty cell means the part has no row
+  in the comparison of that record: the part did not change, or the column
+  is not compared or not measured. More and fewer lines differ by the sign
+  alone, not by colour.
+- A part that has text in no column has no row. Such parts are named
   under the table: `Parts not in the table: <ids>.`
 - The rows are in the order of the parts in the last record, then the
   parts it does not have.
