@@ -144,8 +144,8 @@ are not the places of the plane picture.
 
 Showing the raised picture ends an open walk-through and a chosen task.
 Choosing a scenario or a task while the raised picture shows goes to the
-plane picture and opens it there. Nothing in the raised picture answers the
-pointer or a key, and Esc does nothing while it shows.
+plane picture and opens it there. Nothing in the raised picture reacts to
+the pointer or a key, and Esc does nothing while it shows.
 
 The address carries the picture: `#picture=raised` opens the page with the
 raised picture. A fragment with a `scenario` or `task` key opens the plane

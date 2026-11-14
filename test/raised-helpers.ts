@@ -224,16 +224,16 @@ export function expectRaisedPage(page: string, v: Viewer): void {
   const inside = v.raised.all().slice(1);
   expect([...new Set(inside.map((e) => e.name))].sort().filter((n) => !["g", "polygon", "svg", "text"].includes(n))).toEqual([]);
   expect(inside.filter((e) => e.hasAttribute("data-active"))).toEqual([]);
-  // Nothing in it answers a pointer or a key.
+  // Nothing in it reacts to a pointer or a key.
   expect(inside.filter((e) => e.listeners.size > 0 || e.hasAttribute("tabindex"))).toEqual([]);
   expect(v.raised.listeners.size).toBe(0);
 
-  const groups = v.raised.children.filter((e) => e.name === "g");
-  expect(inside.filter((e) => e.hasAttribute("data-id"))).toEqual(groups);
-  expect(groups.map((g) => g.getAttribute("data-id"))).toEqual(raised.order);
+  const drawn = v.raised.children.filter((e) => e.name === "g");
+  expect(inside.filter((e) => e.hasAttribute("data-id"))).toEqual(drawn);
+  expect(drawn.map((g) => g.getAttribute("data-id"))).toEqual(raised.order);
   const partOf = new Map(raised.parts.map((p, i) => [p.id, { p, planned: plan.parts[i]!.planned === true }]));
   const externalOf = new Map(raised.externals.map((x) => [x.id, x]));
-  for (const g of groups) {
+  for (const g of drawn) {
     const id = g.getAttribute("data-id")!;
     const part = partOf.get(id);
     expect(g.children.every((c) => c.name === "polygon"), id).toBe(true);
@@ -247,8 +247,8 @@ export function expectRaisedPage(page: string, v: Viewer): void {
     expect(g.getAttribute("data-planned"), id).toBe(part.planned ? "true" : null);
     expect(g.children.map((c) => c.getAttribute("class")), id).toEqual(["side", "side", "top"]);
     expect(g.children[2]!.getAttribute("points"), id).toBe(text(lifted(raised, part.p, part.p.z)));
-    const drawn = hull(g.children.flatMap(pointsOf));
-    expect(drawn, id).toEqual(hull([...lifted(raised, part.p, 0), ...lifted(raised, part.p, part.p.z)]));
+    const outline = hull(g.children.flatMap(pointsOf));
+    expect(outline, id).toEqual(hull([...lifted(raised, part.p, 0), ...lifted(raised, part.p, part.p.z)]));
   }
   // Zone lines come first, then the shapes, then the text.
   const kinds = v.raised.children.map((e) => (e.name === "polygon" ? "zone" : e.name === "g" ? "shape" : e.name));

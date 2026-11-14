@@ -5,11 +5,12 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { run } from "../src/cli.js";
 import { layOut, type PartInput } from "../src/layout.js";
+import { pageHtml } from "../src/page.js";
 import { raisedPicture } from "../src/raised.js";
-import { lines, makeRepo, type Tree } from "./helpers.js";
+import { lines, makeRepo, tempDir, type Tree } from "./helpers.js";
 import { HOST, NO_LINES, treeOf, type PlanSpec } from "./lines-plans.js";
 import { expectPage, readBlock, type Block } from "./page-helpers.js";
-import { H0, K, PROJECTION, expectRaised, hull, lifted, overlap } from "./raised-helpers.js";
+import { H0, K, PROJECTION, expectRaised, expectRaisedPage, hull, lifted, overlap } from "./raised-helpers.js";
 import { openViewer, type Viewer } from "./viewer-dom.js";
 
 const PAGE = "docs/codeplan/codeplan.html";
@@ -181,8 +182,9 @@ describe("the raised picture on generated plans", () => {
         id: `p${i}`,
         name: Array.from({ length: 1 + upTo(39) }, () => letters[upTo(letters.length - 1)]!).join(""),
         zone: zones[upTo(zones.length - 1)] || undefined,
-        lines: planned ? 0 : r() < 0.3 ? upTo(30) : r() < 0.9 ? upTo(4000) : upTo(50000),
-        files: planned ? 0 : upTo(40),
+        // A planned part keeps its counts here: its height is H0 all the same.
+        lines: r() < 0.3 ? upTo(30) : r() < 0.9 ? upTo(4000) : upTo(50000),
+        files: upTo(40),
         planned,
       };
     });
@@ -198,6 +200,11 @@ describe("the raised picture on generated plans", () => {
     };
     expectRaised(block);
     expect(raisedPicture(inputs, externals)).toEqual(block.raised);
+    // The page of this block, as the viewer draws it.
+    const file = join(tempDir(), "codeplan.html");
+    const page = pageHtml({ format: 2, orphans: [], unwatched: 0, tasks: [], ...block });
+    writeFileSync(file, page);
+    expectRaisedPage(page, openViewer(file));
   });
 });
 
@@ -349,6 +356,11 @@ describe("the picture button and the fragment", () => {
     expect(v.walk.all().filter((e) => e.getAttribute("data-role") === "picture")).toEqual([]);
     const frame = page.replace(readBlock(page).raw, "");
     expect(frame).not.toMatch(/setInterval|requestAnimationFrame|setTimeout|transition|animation|@keyframes/);
+    // The viewer hides a picture with the hidden attribute; this rule makes
+    // the attribute take the picture away.
+    expect(frame).toContain("#plane[hidden], #raised[hidden] { display: none; }");
+    expect(frame).toMatch(/<svg id="raised" data-picture="raised" hidden /);
+    expect(frame).not.toMatch(/<svg id="plane"[^>]* hidden/);
   });
 });
 

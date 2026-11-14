@@ -1,6 +1,6 @@
 // The raised picture written into the page: each part is a raised rectangle
-// that stands on a rectangle of its plane size and is as high as its line
-// count says. Places come from the parts and externals alone, never from
+// that stands on a rectangle of its plane size, and its height comes from
+// its line count. Places come from the parts and externals alone, never from
 // uses, scenarios or tasks.
 //
 // A shape's cell is the smallest upright rectangle on the screen that holds
@@ -47,8 +47,8 @@ const PROJECTION = { x: [1, 0, 1, 8], y: [0, 1, -1, 8] };
 const MARGIN = 8;
 const RATIO = 3;
 
-// A cell or a group of cells: its size, and how to put it at a place.
-interface Group {
+// A cell or a block of cells: its size, and how to put it at a place.
+interface Block {
   w: number;
   h: number;
   area: number;
@@ -56,9 +56,9 @@ interface Group {
 }
 
 // Cuts the list where the areas before the cut are nearest to half of all,
-// makes a group of each half the same way, and joins the two with a gap:
+// makes a block of each half the same way, and joins the two with a gap:
 // side by side or one above the other, whichever has the shorter long side.
-function joined(list: Group[]): Group {
+function joined(list: Block[]): Block {
   if (list.length === 1) return list[0]!;
   const total = list.reduce((sum, g) => sum + g.area, 0);
   let cut = 1;
@@ -99,7 +99,7 @@ export function raisedPicture(inputs: PartInput[], externalInputs: ExternalInput
   // The cell of a part is its top and its two sides: w + z by h + z. The
   // rectangle it stands on is at the cell's left and z below the cell's
   // top; the label box is at the left and the top of the shape's top.
-  const partCell = (part: RaisedPart): Group => ({
+  const partCell = (part: RaisedPart): Block => ({
     w: part.w + part.z,
     h: part.h + part.z,
     area: (part.w + part.z) * (part.h + part.z),
@@ -114,7 +114,7 @@ export function raisedPicture(inputs: PartInput[], externalInputs: ExternalInput
   // A zone's rectangle holds the cells of its parts, with the title in a
   // strip above them.
   const zones: LayoutZone[] = [];
-  const zoneGroups = new Map<string, Group>();
+  const zoneBlocks = new Map<string, Block>();
   const zoneNames = [...new Set(inputs.map((p) => p.zone ?? "").filter((name) => name !== ""))].sort(byCodeUnit);
   for (const name of zoneNames) {
     const inner = joined(parts.filter((_, i) => inputs[i]!.zone === name).map(partCell));
@@ -128,7 +128,7 @@ export function raisedPicture(inputs: PartInput[], externalInputs: ExternalInput
       title: { x: 0, y: 0, w: tw, h: TITLE_HEIGHT },
     };
     zones.push(zone);
-    zoneGroups.set(name, {
+    zoneBlocks.set(name, {
       w: zone.w,
       h: zone.h,
       area: zone.w * zone.h,
@@ -148,9 +148,9 @@ export function raisedPicture(inputs: PartInput[], externalInputs: ExternalInput
   });
 
   // Parts in plan order, a zone where its first part is, then the externals.
-  const top: Group[] = [];
+  const top: Block[] = [];
   inputs.forEach((p, i) => {
-    const zone = zoneGroups.get(p.zone ?? "");
+    const zone = zoneBlocks.get(p.zone ?? "");
     if (!zone) top.push(partCell(parts[i]!));
     else if (!top.includes(zone)) top.push(zone);
   });

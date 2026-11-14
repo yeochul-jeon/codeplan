@@ -3458,7 +3458,7 @@ function raisedPicture(inputs, externalInputs) {
     }
   });
   const zones = [];
-  const zoneGroups = /* @__PURE__ */ new Map();
+  const zoneBlocks = /* @__PURE__ */ new Map();
   const zoneNames = [...new Set(inputs.map((p2) => p2.zone ?? "").filter((name) => name !== ""))].sort(byCodeUnit);
   for (const name of zoneNames) {
     const inner = joined(parts.filter((_, i) => inputs[i].zone === name).map(partCell));
@@ -3472,7 +3472,7 @@ function raisedPicture(inputs, externalInputs) {
       title: { x: 0, y: 0, w: tw, h: TITLE_HEIGHT }
     };
     zones.push(zone);
-    zoneGroups.set(name, {
+    zoneBlocks.set(name, {
       w: zone.w,
       h: zone.h,
       area: zone.w * zone.h,
@@ -3491,7 +3491,7 @@ function raisedPicture(inputs, externalInputs) {
   });
   const top = [];
   inputs.forEach((p2, i) => {
-    const zone = zoneGroups.get(p2.zone ?? "");
+    const zone = zoneBlocks.get(p2.zone ?? "");
     if (!zone) top.push(partCell(parts[i]));
     else if (!top.includes(zone)) top.push(zone);
   });
