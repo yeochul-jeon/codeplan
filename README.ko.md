@@ -159,6 +159,8 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
   않습니다.
 - 새 `codeplan.mjs`가 선을 다른 방법으로 놓으면, 선을 그리는 계획의 page를
   `check`가 한 번 outdated로 알립니다. `update`를 돌리십시오.
+- raised picture를 더한 `codeplan.mjs`는 모든 page를 다르게 쓰므로,
+  `update`를 돌릴 때까지 `check`가 page마다 outdated로 알립니다.
 
 ## codeplan 개발
 

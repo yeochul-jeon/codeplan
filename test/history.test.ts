@@ -622,7 +622,7 @@ describe("history: marks, cells and what a record shows", () => {
 describe("history: the file", () => {
   const TOKENS = [
     "--cp-bg", "--cp-text", "--cp-text-dim", "--cp-part-fill", "--cp-part-line", "--cp-ext-fill", "--cp-ext-line",
-    "--cp-zone-fill", "--cp-zone-line", "--cp-zone-title", "--cp-edge", "--cp-connector", "--cp-active",
+    "--cp-zone-fill", "--cp-zone-line", "--cp-zone-title", "--cp-part-side", "--cp-edge", "--cp-connector", "--cp-active",
     "--cp-control-fill", "--cp-control-line", "--cp-control-text",
   ];
   const SIZES = ["--cp-size-1", "--cp-size-2", "--cp-size-3"];
@@ -876,8 +876,8 @@ describe("history: the fill of a cell by the size of its change", () => {
       );
     const light = values(':root[data-theme="light"] {');
     const dark = values(':root[data-theme="dark"] {');
-    expect(Object.keys(light)).toHaveLength(19);
-    expect(Object.keys(dark)).toHaveLength(19);
+    expect(Object.keys(light)).toHaveLength(20);
+    expect(Object.keys(dark)).toHaveLength(20);
     expect(values(":root {")).toEqual(light);
     expect(values("@media (prefers-color-scheme: dark) { :root:not([data-theme]) {")).toEqual(dark);
 

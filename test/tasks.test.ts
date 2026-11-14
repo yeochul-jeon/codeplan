@@ -335,7 +335,7 @@ const layoutOf = (plan: unknown, tree: Tree = {}) => JSON.stringify(pageOf(plan,
 describe("tasks in the page's data block", () => {
   test("the block has the tasks before the layout, with the parts to mark and the files that are not there", () => {
     const { block } = pageOf(T());
-    expect(Object.keys(block)).toEqual(["format", "plan", "measure", "orphans", "unwatched", "tasks", "layout"]);
+    expect(Object.keys(block)).toEqual(["format", "plan", "measure", "orphans", "unwatched", "tasks", "layout", "raised"]);
     expect(block.format).toBe(2);
     expect(block.tasks).toEqual([
       { id: "refund-flow", marks: ["shop", "refund"], missing: ["src/refund/give.ts"] },

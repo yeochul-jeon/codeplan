@@ -89,6 +89,7 @@ export interface Viewer {
   location: { hash: string; pathname: string; search: string };
   history: { length: number; replaceState(state: unknown, title: string, url: string): void };
   plane: El;
+  raised: El;
   walk: El;
   legend: El;
   block: Block;
@@ -96,6 +97,9 @@ export interface Viewer {
   // The fragment changes from outside (address bar, a link): hashchange.
   navigate(hash: string): void;
   theme(): { attr: string | null; text: string; button: El };
+  // The picture that shows (the SVG without the hidden attribute) and the
+  // picture button.
+  picture(): { shown: string; text: string; button: El };
   // data-theme on <html> after the first script alone, before the viewer ran.
   themeBeforeViewer: string | null;
   // The first script sits before <body>.
@@ -124,8 +128,8 @@ export function openViewer(pageFile: string, hash = "", storage: Storage = new M
   // The early theme script in the head, then the viewer at the end.
   if (scripts.length !== 2) throw new Error(`expected two scripts, found ${scripts.length}`);
   const doc = new FakeDocument();
-  for (const id of ["tools", "plane", "tasks", "walk", "legend", "codeplan-data"]) {
-    const el = new El(id === "plane" ? "svg" : id === "codeplan-data" ? "script" : "div", doc);
+  for (const id of ["tools", "plane", "raised", "tasks", "walk", "legend", "codeplan-data"]) {
+    const el = new El(id === "plane" || id === "raised" ? "svg" : id === "codeplan-data" ? "script" : "div", doc);
     doc.byId.set(id, el);
   }
   doc.byId.get("codeplan-data")!.textContent = raw;
@@ -167,6 +171,7 @@ export function openViewer(pageFile: string, hash = "", storage: Storage = new M
     location,
     history,
     plane,
+    raised: doc.byId.get("raised")!,
     walk,
     legend: doc.byId.get("legend")!,
     block,
@@ -178,6 +183,11 @@ export function openViewer(pageFile: string, hash = "", storage: Storage = new M
     theme() {
       const button = doc.byId.get("tools")!.children.find((c) => c.getAttribute("data-role") === "theme")!;
       return { attr: doc.documentElement.getAttribute("data-theme"), text: button.textContent, button };
+    },
+    picture() {
+      const button = doc.byId.get("tools")!.children.find((c) => c.getAttribute("data-role") === "picture")!;
+      const shown = (["plane", "raised"] as const).filter((id) => !doc.byId.get(id)!.hasAttribute("hidden"));
+      return { shown: shown.join("+"), text: button.textContent, button };
     },
     navigate(hash) {
       location.hash = hash;

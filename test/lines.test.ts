@@ -22,19 +22,21 @@ const pointsOf = (block: Block, from: string, to: string) =>
   block.layout.edges.find((e) => e.from === from && e.to === to)!.points;
 const sha = (text: string | Buffer) => createHash("sha256").update(text).digest("hex");
 
-describe("a plan without lines has the page it had before lines got places of their own", () => {
-  // The SHA-256 of the page that the codeplan.mjs before this change wrote.
+describe("a plan without lines has the layout it had before lines got places of their own", () => {
+  // The SHA-256 of the layout, as JSON, in the page that the codeplan.mjs
+  // before the raised picture wrote. It wrote the layout of the codeplan.mjs
+  // before lines got places of their own.
   const BEFORE: Record<string, string> = {
-    "parts, zones and an external": "5562b3b497acfa91f785a627439d174f028eee6a1360e4f931749b181773a65d",
-    "a part that uses only itself": "8b2f25b43a8b0d7336750d8416643b7c0820583d8069052553e4b5929a63ca6e",
-    "a scenario whose steps stay in one place": "e23b3b9011a63652bac635f940d9643c7a6dc4f107ea7ec59c586de731a48c43",
+    "parts, zones and an external": "ec268f76e7a371e02aa1e55dbb984f2412ed461d1518d57409847924e1e6e680",
+    "a part that uses only itself": "f3766cd28324cd2ad8a9d2bb15d569480c97beb717cb45e368ba075de14a3325",
+    "a scenario whose steps stay in one place": "f41d56b5003fdc3f726d7ef4f6df6895c40233bc2afa55e90565b2f6c1c30baa",
   };
   test.each(Object.keys(NO_LINES))("%s", (name) => {
     const repo = makeRepo(treeOf(NO_LINES[name]!));
     expect(run(["update"], repo).code).toBe(0);
     const block = expectPage(repo, PAGE);
     expect([block.layout.edges, block.layout.connectors]).toEqual([[], []]);
-    expect(sha(readFileSync(join(repo, PAGE)))).toBe(BEFORE[name]);
+    expect(sha(JSON.stringify(block.layout))).toBe(BEFORE[name]);
   });
 
   test("a plan as draft prints it", () => {
@@ -47,7 +49,8 @@ describe("a plan without lines has the page it had before lines got places of th
     writeFileSync(join(repo, "docs/codeplan/plan.json"), JSON.stringify(draft.plan));
     writeFileSync(join(repo, "codeplan.json"), JSON.stringify(draft.config));
     expect(run(["update"], repo).code).toBe(0);
-    expect(sha(readFileSync(join(repo, PAGE)))).toBe("a869f85f45d78f2dcc92ce9904a4e0621b5d5887782b6921ad682b7e9259854d");
+    const block = expectPage(repo, PAGE);
+    expect(sha(JSON.stringify(block.layout))).toBe("26a1b63841159fd3e37d9c2d8e165cc35434064032fbe35f3d653a37650bf27d");
   });
 });
 

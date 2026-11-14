@@ -117,6 +117,41 @@ is missing or not a whole number from 1 to the number of steps opens step
 replaces the address fragment without adding to the browser history; Esc
 removes it.
 
+## The raised picture
+
+The page holds two pictures of the same plan: the plane picture described
+above and the raised picture. A picture button above the picture shows one
+or the other. Its text is the name of the picture that is not showing:
+`raised` or `plane`. The page opens with the plane picture.
+
+In the raised picture each part is a raised rectangle:
+
+- It stands on a rectangle of the same size as the part's rectangle in the
+  plane picture.
+- Its height comes from the part's line count: the more lines, the higher.
+  A planned part and a part with no lines have the lowest height.
+- You see its top and two of its sides. The label is on the top and has the
+  same three lines as in the plane picture. A planned part has dashed lines.
+
+An external is a flat rectangle with its label. A zone is a line around the
+rectangles its parts stand on, with the zone's name inside the line. No
+raised rectangle covers another one or a label.
+
+The raised picture has no lines for uses, no connectors and no highlight.
+Where its shapes are comes from the parts, their counts and the externals
+alone, so changing `uses`, scenarios or tasks does not change it. The places
+are not the places of the plane picture.
+
+Showing the raised picture ends an open walk-through and a chosen task.
+Choosing a scenario or a task while the raised picture shows goes to the
+plane picture and opens it there. Nothing in the raised picture answers the
+pointer or a key, and Esc does nothing while it shows.
+
+The address carries the picture: `#picture=raised` opens the page with the
+raised picture. A fragment with a `scenario` or `task` key opens the plane
+picture, whatever `picture` says. The button replaces the fragment without
+adding to the browser history, and going to the plane picture removes it.
+
 ## Themes
 
 A theme button above the picture switches between `auto`, `light` and
@@ -132,13 +167,14 @@ Every colour on the page is one of these tokens:
 | `--cp-bg` | page and picture background |
 | `--cp-text` | labels and the step text |
 | `--cp-text-dim` | the lines below the picture, the filled length of a task's bar, the list of a task's files that are not there |
-| `--cp-part-fill` | part rectangles |
+| `--cp-part-fill` | part rectangles, the tops of raised rectangles |
 | `--cp-part-line` | part rectangle borders |
 | `--cp-ext-fill` | external rectangles |
 | `--cp-ext-line` | external rectangle borders |
 | `--cp-zone-fill` | zone frames |
 | `--cp-zone-line` | zone frame borders |
 | `--cp-zone-title` | zone names |
+| `--cp-part-side` | the sides of raised rectangles |
 | `--cp-edge` | lines for uses and their arrows |
 | `--cp-connector` | connectors |
 | `--cp-active` | highlighted borders and lines, the border of a chosen task |

@@ -2,6 +2,7 @@
 // viewer code) is part of codeplan.mjs, so a new frame makes old pages
 // outdated.
 import type { Layout } from "./layout.js";
+import type { Raised } from "./raised.js";
 
 export const PAGE_MARK = "<!doctype html><!-- codeplan page -->";
 const BLOCK_OPEN = '<script type="application/json" id="codeplan-data">';
@@ -14,6 +15,7 @@ export interface PageData {
   unwatched: number;
   tasks: { id: string; marks: string[]; missing: string[] }[];
   layout: Layout;
+  raised: Raised;
 }
 
 // JSON for the data block: `<`, `>`, `&`, U+2028 and U+2029 written as
@@ -39,6 +41,7 @@ export const THEMES = {
     "--cp-zone-fill": "#efece4",
     "--cp-zone-line": "#857c66",
     "--cp-zone-title": "#4a4436",
+    "--cp-part-side": "#dfe5ee",
     "--cp-edge": "#5b6170",
     "--cp-connector": "#8a6a1f",
     "--cp-active": "#b5400f",
@@ -57,6 +60,7 @@ export const THEMES = {
     "--cp-zone-fill": "#22211d",
     "--cp-zone-line": "#9a9079",
     "--cp-zone-title": "#d8cfb8",
+    "--cp-part-side": "#2c3441",
     "--cp-edge": "#9aa1ae",
     "--cp-connector": "#d0a650",
     "--cp-active": "#f08a4b",
@@ -82,8 +86,9 @@ const STYLE = `
 ${THEME_STYLE}
 html, body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font: 13px/1.4 system-ui, sans-serif; }
 main { padding: 16px; }
-#tools { display: flex; justify-content: flex-end; margin: 0 0 8px; }
-#plane { display: block; width: 100%; height: auto; max-height: 80vh; background: transparent; }
+#tools { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 8px; }
+#plane, #raised { display: block; width: 100%; height: auto; max-height: 80vh; background: transparent; }
+#plane[hidden], #raised[hidden] { display: none; }
 .zone { fill: var(--cp-zone-fill); stroke: var(--cp-zone-line); stroke-width: 1; }
 .zone-title { fill: var(--cp-zone-title); font-size: 12px; font-weight: 600; }
 .part { fill: var(--cp-part-fill); stroke: var(--cp-part-line); stroke-width: 1; }
@@ -91,6 +96,10 @@ main { padding: 16px; }
 .external { fill: var(--cp-ext-fill); stroke: var(--cp-ext-line); stroke-width: 1; stroke-dasharray: 4 2; }
 .label { fill: var(--cp-text); font-size: 12px; }
 .label .name { font-weight: 600; }
+#raised .zone { fill: none; }
+.side { fill: var(--cp-part-side); stroke: var(--cp-part-line); stroke-width: 1; stroke-linejoin: round; }
+.top { fill: var(--cp-part-fill); stroke: var(--cp-part-line); stroke-width: 1; stroke-linejoin: round; }
+g[data-planned] .side, g[data-planned] .top { stroke-dasharray: 6 3; }
 .edge { fill: none; stroke: var(--cp-edge); stroke-width: 1.25; }
 .connector { fill: none; stroke: var(--cp-connector); stroke-width: 1.25; stroke-dasharray: 5 4; }
 .arrow { fill: var(--cp-edge); stroke: none; }
@@ -141,7 +150,8 @@ export const THEME_BUTTON = `  var root = document.documentElement;
 
 // The viewer: reads the data block and draws the layout as SVG, then the
 // task pane when the plan has tasks and the scenario walk-through when it
-// has scenarios. Plan text is always
+// has scenarios. The raised picture is drawn into a second SVG, and a
+// button shows one picture or the other. Plan text is always
 // set with textContent; label and title text is clipped to its box by a
 // nested svg element. Nothing moves on its own.
 const VIEWER = `
@@ -224,6 +234,49 @@ const VIEWER = `
     connectors.push({ scenario: con.scenario, step: con.step, el: make("polyline", { points: points(con.points), "class": "connector", "data-scenario": con.scenario, "data-step": con.step }, plane) });
   }
 
+  // The raised picture: zone lines, then the shapes in the order the data
+  // gives, then the labels and the zone titles. A part is its left side,
+  // its front side and its top; an external is the rectangle on the ground.
+  var raised = data.raised;
+  var raisedSvg = document.getElementById("raised");
+  raisedSvg.setAttribute("viewBox", "0 0 " + raised.width + " " + raised.height);
+  var px = raised.projection.x;
+  var py = raised.projection.y;
+  function face(corners, cls, parent) {
+    var out = [];
+    for (var i = 0; i < corners.length; i++) {
+      var c = corners[i];
+      out.push((px[0] * c[0] + px[1] * c[1] + px[2] * c[2] + px[3]) + "," + (py[0] * c[0] + py[1] * c[1] + py[2] * c[2] + py[3]));
+    }
+    make("polygon", { points: out.join(" "), "class": cls }, parent);
+  }
+  function level(b, z) {
+    return [[b.x, b.y, z], [b.x + b.w, b.y, z], [b.x + b.w, b.y + b.h, z], [b.x, b.y + b.h, z]];
+  }
+  for (var rz = 0; rz < raised.zones.length; rz++) face(level(raised.zones[rz], 0), "zone", raisedSvg);
+  var raisedParts = Object.create(null);
+  for (var rp = 0; rp < raised.parts.length; rp++) raisedParts[raised.parts[rp].id] = raised.parts[rp];
+  var raisedExternals = Object.create(null);
+  for (var rx = 0; rx < raised.externals.length; rx++) raisedExternals[raised.externals[rx].id] = raised.externals[rx];
+  for (var ro = 0; ro < raised.order.length; ro++) {
+    var shape = make("g", { "data-id": raised.order[ro] }, raisedSvg);
+    var b = raisedParts[raised.order[ro]];
+    if (!b) {
+      face(level(raisedExternals[raised.order[ro]], 0), "external", shape);
+      continue;
+    }
+    if (planned[b.id]) shape.setAttribute("data-planned", "true");
+    face([[b.x, b.y, 0], [b.x, b.y + b.h, 0], [b.x, b.y + b.h, b.z], [b.x, b.y, b.z]], "side", shape);
+    face([[b.x, b.y + b.h, 0], [b.x + b.w, b.y + b.h, 0], [b.x + b.w, b.y + b.h, b.z], [b.x, b.y + b.h, b.z]], "side", shape);
+    face(level(b, b.z), "top", shape);
+  }
+  for (var rl = 0; rl < raised.parts.length; rl++) {
+    var rm = measured[raised.parts[rl].id] || { lines: 0, files: 0 };
+    textBox(raised.parts[rl].label, [names[raised.parts[rl].id] || raised.parts[rl].id, rm.lines + " lines", planned[raised.parts[rl].id] ? "planned" : rm.files + " files"], "label", raisedSvg);
+  }
+  for (var re = 0; re < raised.externals.length; re++) textBox(raised.externals[re].label, [names[raised.externals[re].id] || raised.externals[re].id, "external"], "label", raisedSvg);
+  for (var rt = 0; rt < raised.zones.length; rt++) textBox(raised.zones[rt].title, [raised.zones[rt].name], "zone-title", raisedSvg);
+
   var legend = document.getElementById("legend");
   function line(text) { html("p", legend).textContent = text; }
   var title = str(plan.name);
@@ -231,6 +284,35 @@ const VIEWER = `
   if (data.orphans.length > 0) line(data.orphans.length + " orphan files: no part owns them");
   if (data.unwatched > 0) line(data.unwatched + " unwatched files: code outside the watch set");
   if (title) document.title = title;
+
+  // The picture button: one picture shows at a time, and the button names
+  // the other one.
+  var pictureButton = html("button", document.getElementById("tools"));
+  pictureButton.type = "button";
+  pictureButton.setAttribute("data-role", "picture");
+  pictureButton.title = "Show the other picture of the plan";
+  var picture;
+  function setPicture(name) {
+    picture = name;
+    (name === "raised" ? plane : raisedSvg).setAttribute("hidden", "");
+    (name === "raised" ? raisedSvg : plane).removeAttribute("hidden");
+    pictureButton.textContent = name === "raised" ? "plane" : "raised";
+  }
+  setPicture("plane");
+  // The raised picture ends a walk-through and a chosen task, and its
+  // fragment has the picture key alone.
+  function showRaised() {
+    if (current !== null) close(true);
+    endTask(true);
+    setPicture("raised");
+    setHash("picture=raised");
+  }
+  pictureButton.addEventListener("click", function () {
+    if (picture === "raised") {
+      setPicture("plane");
+      setHash("");
+    } else showRaised();
+  });
 
   // The theme button: auto, then light, then dark, then auto again.
 ${THEME_BUTTON}
@@ -316,6 +398,7 @@ ${THEME_BUTTON}
     if (!keep) setHash("");
   }
   function chooseTask(id, keep) {
+    setPicture("plane");
     if (current !== null) close(true);
     endTask(true);
     var row = taskRows[id];
@@ -355,8 +438,9 @@ ${THEME_BUTTON}
     prev.disabled = true;
     next.disabled = true;
     select.addEventListener("change", function () {
-      if (select.value === "") close();
-      else open(Number(select.value), 0);
+      if (select.value === "") {
+        if (current !== null) close();
+      } else open(Number(select.value), 0);
     });
     prev.addEventListener("click", function () { move(-1); });
     next.addEventListener("click", function () { move(1); });
@@ -402,6 +486,7 @@ ${THEME_BUTTON}
     if (!keep) setHash("scenario=" + scenario.id + "&step=" + (k + 1));
   }
   function open(index, step, fromHash) {
+    setPicture("plane");
     endTask(true);
     current = { index: index, step: step };
     select.value = String(index);
@@ -442,12 +527,16 @@ ${THEME_BUTTON}
   // later (replaceState above does not fire hashchange). A scenario key is
   // read first and the task key is then not looked at. An unknown id is
   // ignored; no fragment at all ends the walk-through and the chosen task.
+  // The picture key is read only when neither of those keys is there; the
+  // raised picture shows for the value "raised" and the plane picture for
+  // anything else.
   function fromHash(onLoad) {
     var text = location.hash.replace(/^#/, "");
     if (text === "") {
       if (!onLoad) {
         if (current !== null) close();
         endTask();
+        setPicture("plane");
       }
       return;
     }
@@ -460,6 +549,7 @@ ${THEME_BUTTON}
       }
     }
     if ("scenario" in wanted) {
+      setPicture("plane");
       for (var w = 0; w < scenarios.length; w++) {
         if (scenarios[w].id !== wanted.scenario) continue;
         var n = (scenarios[w].steps || []).length;
@@ -469,7 +559,11 @@ ${THEME_BUTTON}
       }
       return;
     }
-    if ("task" in wanted && taskRows[wanted.task]) chooseTask(wanted.task, true);
+    if ("task" in wanted) {
+      setPicture("plane");
+      if (taskRows[wanted.task]) chooseTask(wanted.task, true);
+    } else if (wanted.picture === "raised") showRaised();
+    else setPicture("plane");
   }
   window.addEventListener("hashchange", function () { fromHash(false); });
   fromHash(true);
@@ -482,7 +576,8 @@ export const FRAME = {
     `<meta name="viewport" content="width=device-width, initial-scale=1">\n` +
     `<title>codeplan</title>\n<style>${STYLE}</style>\n<script>${EARLY}</script>\n</head>\n<body>\n<main>\n` +
     `<div id="tools"></div>\n` +
-    `<svg id="plane" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="parts of the repository"></svg>\n` +
+    `<svg id="plane" data-picture="plane" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="parts of the repository"></svg>\n` +
+    `<svg id="raised" data-picture="raised" hidden xmlns="http://www.w3.org/2000/svg" role="img" aria-label="parts of the repository as raised rectangles"></svg>\n` +
     `<div id="tasks"></div>\n<div id="walk"></div>\n<div id="legend"></div>\n</main>\n`,
   tail: `\n<script>${VIEWER}</script>\n</body>\n</html>\n`,
 };

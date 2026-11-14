@@ -159,6 +159,9 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
 - The page loads nothing from outside and holds no absolute path or time.
 - When a new `codeplan.mjs` places the lines in another way, `check` reports
   the page of a plan that draws lines as outdated once; run `update`.
+- The `codeplan.mjs` that added the raised picture writes every page
+  differently, so `check` reports each page as outdated until you run
+  `update`.
 
 ## Developing codeplan
 

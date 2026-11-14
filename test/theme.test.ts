@@ -8,13 +8,18 @@ import { openViewer } from "./viewer-dom.js";
 
 const TOKENS = [
   "--cp-bg", "--cp-text", "--cp-text-dim", "--cp-part-fill", "--cp-part-line", "--cp-ext-fill", "--cp-ext-line",
-  "--cp-zone-fill", "--cp-zone-line", "--cp-zone-title", "--cp-edge", "--cp-connector", "--cp-active",
+  "--cp-zone-fill", "--cp-zone-line", "--cp-zone-title", "--cp-part-side", "--cp-edge", "--cp-connector", "--cp-active",
   "--cp-control-fill", "--cp-control-line", "--cp-control-text",
 ];
-const TEXT_PAIRS = [["text", "bg"], ["text", "part-fill"], ["text", "ext-fill"], ["zone-title", "zone-fill"], ["text-dim", "bg"], ["control-text", "control-fill"]];
+const TEXT_PAIRS = [
+  ["text", "bg"], ["text", "part-fill"], ["text", "ext-fill"], ["zone-title", "zone-fill"], ["text-dim", "bg"], ["control-text", "control-fill"],
+  // The raised picture.
+  ["text", "part-side"], ["zone-title", "bg"],
+];
 const LINE_PAIRS = [
   ["part-line", "bg"], ["part-line", "zone-fill"], ["ext-line", "bg"], ["zone-line", "bg"], ["edge", "bg"], ["edge", "zone-fill"],
   ["connector", "bg"], ["connector", "zone-fill"], ["active", "bg"], ["active", "zone-fill"], ["active", "part-fill"], ["control-line", "bg"],
+  ["part-line", "part-side"],
 ];
 
 // WCAG 2 relative luminance and contrast ratio.
@@ -68,7 +73,7 @@ function pageFile(plan: unknown): string {
 }
 
 describe("theme tokens", () => {
-  test("sixteen opaque tokens in each theme, every pair above its contrast", () => {
+  test("seventeen opaque tokens in each theme, every pair above its contrast", () => {
     const mins: string[] = [];
     for (const [name, theme] of Object.entries(THEMES)) {
       expect(Object.keys(theme)).toEqual(TOKENS);
@@ -81,6 +86,7 @@ describe("theme tokens", () => {
       mins.push(`${name}: text ${textMin.toFixed(2)}, lines ${lineMin.toFixed(2)}`);
     }
     console.log(`lowest contrast: ${mins.join("; ")}`);
+    for (const theme of Object.values(THEMES)) expect(theme["--cp-part-side"]).not.toBe(theme["--cp-part-fill"]);
     expect(JSON.stringify(THEMES.light)).not.toBe(JSON.stringify(THEMES.dark));
   });
 

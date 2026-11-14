@@ -12,6 +12,7 @@ import { planPath, readPlanFile, type PlanPart } from "./plan.js";
 import { readSnapshot, reportText, snapshotText, takeSnapshot, type PageState, type Snapshot } from "./report.js";
 import { layOut } from "./layout.js";
 import { PAGE_MARK, pageHtml } from "./page.js";
+import { raisedPicture } from "./raised.js";
 import { mermaidText, summaryText } from "./summary.js";
 import { diagnosePlan, diagnostic, planTasks, preparePlan, type Diagnostic, type PlanTask } from "./validate.js";
 
@@ -262,18 +263,16 @@ function pageFor(plan: unknown, m: Measurement, tasks: PlanTask[]): string {
       connectors.push({ scenario: scenario.id, step: k, from: a, to: b });
     });
   }
-  const layout = layOut(
-    raw.parts.map((part, i) => ({
-      id: part.id,
-      name: part.name,
-      zone: part.zone,
-      lines: parts[i]!.lines,
-      files: parts[i]!.files,
-      planned: part.planned === true,
-    })),
-    externals.map((e) => ({ id: e.id, name: e.name })),
-    { edges, connectors },
-  );
+  const partInputs = raw.parts.map((part, i) => ({
+    id: part.id,
+    name: part.name,
+    zone: part.zone,
+    lines: parts[i]!.lines,
+    files: parts[i]!.files,
+    planned: part.planned === true,
+  }));
+  const externalInputs = externals.map((e) => ({ id: e.id, name: e.name }));
+  const layout = layOut(partInputs, externalInputs, { edges, connectors });
   return pageHtml({
     format: 2,
     plan,
@@ -291,6 +290,7 @@ function pageFor(plan: unknown, m: Measurement, tasks: PlanTask[]): string {
       return { id: task.id, marks: parts.map((p) => p.id).filter((id) => marked.has(id)), missing: task.missing };
     }),
     layout,
+    raised: raisedPicture(partInputs, externalInputs),
   });
 }
 

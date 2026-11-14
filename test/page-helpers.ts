@@ -14,6 +14,8 @@ import { basename, join } from "node:path";
 import { expect } from "vitest";
 import { check, run } from "../src/cli.js";
 import { tempDir } from "./helpers.js";
+import { expectRaised, expectRaisedPage } from "./raised-helpers.js";
+import { openViewer } from "./viewer-dom.js";
 
 export const MARK = "<!doctype html><!-- codeplan page -->";
 const OPEN = '<script type="application/json" id="codeplan-data">';
@@ -47,6 +49,15 @@ export interface Block {
     externals: { id: string; x: number; y: number; w: number; h: number; label: Box }[];
     edges: { from: string; to: string; points: [number, number][] }[];
     connectors: { scenario: string; step: number; points: [number, number][] }[];
+  };
+  raised: {
+    width: number;
+    height: number;
+    projection: { x: number[]; y: number[] };
+    zones: { name: string; x: number; y: number; w: number; h: number; title: Box }[];
+    parts: { id: string; x: number; y: number; w: number; h: number; z: number; label: Box }[];
+    externals: { id: string; x: number; y: number; w: number; h: number; label: Box }[];
+    order: string[];
   };
 }
 interface Box {
@@ -379,7 +390,7 @@ export function expectPage(repo: string, pagePath: string): Block {
   for (const m of raw.matchAll(/\\u([0-9a-fA-F]{4})/g)) {
     if (["003c", "003e", "0026", "2028", "2029"].includes(m[1]!.toLowerCase())) expect(m[1]).toBe(m[1]!.toLowerCase());
   }
-  expect(keysOf(block)).toEqual(["format", "plan", "measure", "orphans", "unwatched", "tasks", "layout"]);
+  expect(keysOf(block)).toEqual(["format", "plan", "measure", "orphans", "unwatched", "tasks", "layout", "raised"]);
   expect(block.format).toBe(2);
   expect(keysOf(block.measure)).toEqual(["parts", "files", "lines"]);
   for (const p of block.measure.parts) expect(keysOf(p)).toEqual(["id", "files", "lines"]);
@@ -395,6 +406,8 @@ export function expectPage(repo: string, pagePath: string): Block {
   expect(block.orphans).toEqual(result.measurement.orphans);
   expect(block.unwatched).toBe(result.measurement.unwatched.length);
   expectLayout(block);
+  expectRaised(block);
+  expectRaisedPage(page, openViewer(join(repo, pagePath)));
 
   const outside = page.replace(raw, "");
   for (const net of [/(?:src|href)\s*=\s*["']?\s*\/\//i, /url\(\s*["']?\/\//i, /@import/i, /<link[^>]*stylesheet/i, /fetch\(/, /XMLHttpRequest/]) {
