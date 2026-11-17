@@ -161,7 +161,7 @@ export interface Found {
 
 // The import paths the expressions find in a text, expression by
 // expression, each in text order.
-export function importPaths(text: string, ts: boolean): Found[] {
+export function pathsFound(text: string, ts: boolean): Found[] {
   const out: Found[] = [];
   for (const expression of [STATIC, SIDE, DYN, ts ? REQ_TS : REQ]) {
     for (const match of text.matchAll(expression)) out.push({ path: match[2]!, at: match.index });
@@ -174,12 +174,12 @@ export function importPaths(text: string, ts: boolean): Found[] {
 // are there). Each import path that is only in the written text comes once,
 // at its first place in the written text.
 export function fileImports(text: string, ts: boolean): { read: Found[]; onlyWritten: Found[] } {
-  const read = importPaths(erased(text), ts);
+  const read = pathsFound(erased(text), ts);
   const left = new Map<string, number>();
   for (const f of read) left.set(f.path, (left.get(f.path) ?? 0) + 1);
   const firstAt = new Map<string, number>();
   const extra = new Set<string>();
-  for (const f of importPaths(text, ts)) {
+  for (const f of pathsFound(text, ts)) {
     firstAt.set(f.path, Math.min(firstAt.get(f.path) ?? f.at, f.at));
     const count = left.get(f.path) ?? 0;
     if (count > 0) left.set(f.path, count - 1);

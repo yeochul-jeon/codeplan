@@ -490,7 +490,7 @@ var SIDE = /(?<![.\w$])import\s*(['"])([^'"\n]+)\1/g;
 var DYN = /(?<![.\w$])import\s*\(\s*(['"])([^'"\n]+)\1\s*[,)]/g;
 var REQ = /(?<![.\w$])require\s*\(\s*(['"])([^'"\n]+)\1\s*\)/g;
 var REQ_TS = /(?<![.\w$])import\s+[\w$]+\s*=\s*require\s*\(\s*(['"])([^'"\n]+)\1\s*\)/g;
-function importPaths(text, ts) {
+function pathsFound(text, ts) {
   const out = [];
   for (const expression of [STATIC, SIDE, DYN, ts ? REQ_TS : REQ]) {
     for (const match of text.matchAll(expression)) out.push({ path: match[2], at: match.index });
@@ -498,12 +498,12 @@ function importPaths(text, ts) {
   return out;
 }
 function fileImports(text, ts) {
-  const read = importPaths(erased(text), ts);
+  const read = pathsFound(erased(text), ts);
   const left = /* @__PURE__ */ new Map();
   for (const f of read) left.set(f.path, (left.get(f.path) ?? 0) + 1);
   const firstAt = /* @__PURE__ */ new Map();
   const extra = /* @__PURE__ */ new Set();
-  for (const f of importPaths(text, ts)) {
+  for (const f of pathsFound(text, ts)) {
     firstAt.set(f.path, Math.min(firstAt.get(f.path) ?? f.at, f.at));
     const count2 = left.get(f.path) ?? 0;
     if (count2 > 0) left.set(f.path, count2 - 1);

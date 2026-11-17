@@ -154,6 +154,9 @@ What `check` does not read or look at in JS and TS files:
   of an ending written in a `paths` value. In a Node16 or NodeNext ES
   module file, a relative import with no ending is read, where TypeScript
   stops with an error.
+- It does not tell an import inside a `declare global { … }` block from
+  others: it reads it as an import, where TypeScript reports an error and
+  makes no relation.
 - It does not tell a `/` after `)` that starts a regular expression from a
   division. When a template that holds text like an import comes later, the
   import path is found in both readings and makes an import pair with no
