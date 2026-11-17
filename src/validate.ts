@@ -8,6 +8,7 @@ import type { ImportFacts } from "./imports.js";
 import type { JsFacts } from "./jsimports.js";
 import { byCodeUnit } from "./measure.js";
 import type { PlanPart } from "./plan.js";
+import { judge, readEvidence, type Evidence, type FileLines } from "./stamp.js";
 
 export type Severity = "error" | "warning" | "info";
 
@@ -40,6 +41,8 @@ export const SEVERITY: Record<string, Severity> = {
   "evidence-not-read": "info",
   "evidence-no-file": "info",
   "evidence-no-line": "info",
+  "evidence-stamp-elsewhere": "info",
+  "evidence-stamp-differs": "info",
   "import-without-use": "info",
   "use-without-import": "info",
   "import-needs-check": "info",
@@ -222,6 +225,8 @@ export interface MeasuredFacts {
   // The line count of the file at a path; null when no file can be read
   // there.
   lineCount: (path: string) => number | null;
+  // Needed when the plan has stamped evidence.
+  stampLines?: (path: string) => FileLines | null;
   // What the .java files import; null when imports are not judged (no java
   // rules, a part that is not measured, or a contested file).
   imports: ImportFacts | null;
@@ -230,19 +235,53 @@ export interface MeasuredFacts {
   js: JsFacts | null;
 }
 
-// What is to say of an evidence string: the first of the three that holds.
-function evidenceFinding(evidence: string, lineCount: (path: string) => number | null): [code: string, sentence: string] | null {
-  const written = JSON.stringify(evidence);
-  const colon = evidence.lastIndexOf(":");
-  const path = evidence.slice(0, Math.max(colon, 0));
-  const line = evidence.slice(colon + 1);
-  if (colon < 0 || !/^[1-9][0-9]*$/.test(line) || !isPathForm(path)) {
-    return ["evidence-not-read", `evidence ${written} is not written as file:line`];
-  }
-  const count = lineCount(path);
-  if (count === null) return ["evidence-no-file", `the file of evidence ${written} is not a file in the repository`];
-  if (count < Number(line)) return ["evidence-no-line", `the file of evidence ${written} does not have that line`];
-  return null;
+// The evidence strings that check judges, in document order. `form` is
+// null when the string has neither form.
+export interface EvidenceItem {
+  at: string;
+  part: string | null;
+  to: string | null;
+  evidence: string;
+  form: Evidence | null;
+}
+
+export function evidenceItems(prepared: PreparedPlan): EvidenceItem[] {
+  const out: EvidenceItem[] = [];
+  if (!isObj(prepared.raw)) return out;
+  arrayOf(prepared.raw.parts).forEach((part, i) => {
+    if (!isObj(part) || prepared.repeatedItems.has(part) || !Array.isArray(part.uses)) return;
+    part.uses.forEach((use, k) => {
+      if (!isObj(use) || !Array.isArray(use.evidence)) return;
+      use.evidence.forEach((evidence, j) => {
+        if (typeof evidence !== "string") return;
+        out.push({
+          at: `parts[${i}].uses[${k}].evidence[${j}]`,
+          part: validId(part.id) ? part.id : null,
+          to: validId(use.to) ? use.to : null,
+          evidence,
+          form: readEvidence(evidence),
+        });
+      });
+    });
+  });
+  return out;
+}
+
+// What is to say of an evidence string: the first finding that holds.
+function evidenceFinding(text: string, facts: MeasuredFacts): [code: string, sentence: string] | null {
+  const written = JSON.stringify(text);
+  const evidence = readEvidence(text);
+  if (evidence === null) return ["evidence-not-read", `evidence ${written} is not written as file:line`];
+  const { state } = judge(evidence, { count: facts.lineCount, lines: facts.stampLines! });
+  const sentence = {
+    "no-file": `the file of evidence ${written} is not a file in the repository`,
+    "no-line": `the file of evidence ${written} does not have that line`,
+    elsewhere: `one other line of the file has the stamp of evidence ${written}`,
+    differs: `the line of evidence ${written} does not have its stamp`,
+  }[state as string];
+  // The code: evidence-no-file, evidence-no-line, evidence-stamp-elsewhere
+  // or evidence-stamp-differs.
+  return sentence === undefined ? null : [`evidence-${state.startsWith("no-") ? "" : "stamp-"}${state}`, sentence];
 }
 
 export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diagnostic[] {
@@ -538,7 +577,7 @@ export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diag
                 if (typeof e !== "string") {
                   emit("bad-shape", `${uat}.evidence[${j}]`, `${who}evidence must be a string`);
                 } else if (!repeated) {
-                  const found = evidenceFinding(e, facts.lineCount);
+                  const found = evidenceFinding(e, facts);
                   if (found !== null) emit(found[0], `${uat}.evidence[${j}]`, `${who}${found[1]}`);
                 }
               });

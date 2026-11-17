@@ -65,6 +65,11 @@ external, scenario를 더합니다.
 다이어그램이 든 Markdown으로 출력합니다. pull request나 README에 쓸 수
 있습니다.
 
+`node docs/codeplan/codeplan.mjs stamps`는 계획의 evidence 항목마다 JSON
+한 줄을 출력합니다. 항목의 상태, 줄 하나, 그 줄의 stamp를 도구가 지금
+파일에서 읽은 대로 냅니다.
+[명령 참고 문서](skill/codeplan/docs/commands.md#stamps)를 보십시오.
+
 ## 계획한 저장소에 커밋하는 파일
 
 | 파일 | 무엇인지 |

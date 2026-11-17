@@ -43,9 +43,11 @@ last line of `check`, and with nothing else to report that line is
 | `task-done-missing` | info | `tasks[i].status` | The task is `done` and one or more files in its `makes` are not in the repository. The message gives the count, such as `1 of 2`. | Make the files, take them out of `makes`, or write the status the task has now. |
 | `task-todo-has-files` | info | `tasks[i].status` | The task is `todo` and one or more files in its `makes` are already in the repository. | Nothing has to change. If the files are not what the task makes, correct `makes`. |
 | `task-path-unowned` | info | `tasks[i].makes[j]`, where the path is first written | A path in `makes` is not a file yet, and the file would be in the watch set and match no part's `paths`: once made it would be an orphan. Not reported while a part is left out of counting. | Add a pattern for the path to a part's `paths`, or correct the path. |
-| `evidence-not-read` | info | `uses[i].evidence[j]` | The string is not written as `file:line`: a path from the repository root with `/` between its parts, a colon, and a line number of 1 or more. | Write it as `file:line`. |
+| `evidence-not-read` | info | `uses[i].evidence[j]` | The string is not written as `file:line` or `file:line#stamp`: a path from the repository root with `/` between its parts, a colon, a line number of 1 or more, and with a stamp `#` and 8 lowercase hex characters. A stamp in another form (capital letters, 7 or 9 characters, a second `#`) gives this code too, and the message does not say that the stamp is the problem. | Write it as `file:line`, or as `file:line#stamp` with the stamp that `stamps` gives. |
 | `evidence-no-file` | info | `uses[i].evidence[j]` | No file can be read at that path (nothing there, a directory, a symbolic link). The file does not have to be in the watch set. | Write the path of a file that is in the repository, or remove the evidence. |
-| `evidence-no-line` | info | `uses[i].evidence[j]` | The file has fewer lines than the line number. | Write the line that shows the use as the file is now, or remove the evidence. |
+| `evidence-no-line` | info | `uses[i].evidence[j]` | The file has fewer lines than the line number. With a stamp: also no single line of the file has the stamp. | Write the line that shows the use as the file is now, or remove the evidence. |
+| `evidence-stamp-elsewhere` | info | `uses[i].evidence[j]` | The evidence has a stamp, the written line does not have it (or is not there), and exactly one other line of the file has it. The message does not give that line; `stamps` does. | Read the line that `stamps` gives. Write its number only if that line still shows the use: the same stamp means the same text on the line, not the same use. |
+| `evidence-stamp-differs` | info | `uses[i].evidence[j]` | The evidence has a stamp, the written line is there and does not have it, and no single line of the file has it (none, or two or more). | Read the written line again. If it still shows the use, write the stamp that `stamps` gives for it; if not, write another line, remove the evidence, or correct the use. |
 | `import-without-use` | info | `parts[i].uses` | A `.java` file of this part imports a `.java` file of another part, or a JS or TS file of this part imports a file of another part, and this part has no use of that part. One line for each such part; the message names one file as an example, the first by path of both kinds. | Add a use of that part. Nothing has to change if the plan is not to show that use. |
 | `use-without-import` | info | `uses[i].to` | The use names a part, both parts have `.java` files, and no file of this part imports a file of that part. Only for `.java` files: JS and TS code often uses other code with no import (globals, injection, paths in strings). | Nothing has to change if the part uses the other without an import line. Remove the use if it is no longer there. |
 | `import-needs-check` | info | `parts[i].uses` | An import path of a JS or TS file of this part reaches a file of another part, but only when comments and strings are read too; the two parts are not an import pair and this part has no use of that part. The message names the first such file and its first such import path. | Look at the import in the file. Add a use of that part if the code uses it; nothing has to change if the import is commented out or is only text. |
@@ -54,10 +56,22 @@ last line of `check`, and with nothing else to report that line is
 
 ## Evidence and imports
 
-The eight codes above are info lines: they do not change an exit code.
+The ten codes above are info lines: they do not change an exit code.
 
-- For each `evidence` string, `check` reports the first of the three
+- For each `evidence` string, `check` reports the first of the five
   evidence codes that holds, and nothing when none does.
+- An evidence written as `file:line#stamp` is looked at with the stamp of
+  its line (see [plan file](plan-file.md#stamps)). When the written line
+  has the stamp, nothing is reported, whatever the other lines have.
+  Otherwise `check` counts the lines of the file that have the stamp: one
+  line gives `evidence-stamp-elsewhere` (also when the written line is not
+  there), and none or two or more give `evidence-no-line` when the written
+  line is not there and `evidence-stamp-differs` when it is.
+- A file named by an evidence with a stamp is read once; its line count and
+  the stamps of its lines come from the same bytes, for every evidence of
+  that file.
+- A `codeplan.mjs` from before stamps reports each evidence with a stamp as
+  `evidence-not-read`, and its exit code stays the same.
 - The imports are read in `.java` files that one part owns. An import line
   is one line that begins with `import`, with one import on it. The file
   of an imported name is the `.java` file whose package line and file name
@@ -73,8 +87,27 @@ The eight codes above are info lines: they do not change an exit code.
 
 What `check` does not read or look at for evidence and `.java` files:
 
-- It does not read the line of an evidence: an evidence whose line has
-  moved to other code is not found.
+- Without a stamp, it does not read the line of an evidence: an evidence
+  whose line has moved to other code is not found. With a stamp, it looks
+  only whether the line has the stamp.
+- It does not look whether a line that has the stamp still shows the use:
+  the line may now be inside a comment, have a `return` before it, or use
+  a name that now means something else. The same stamp only means the same
+  text on the line.
+- It does not see other code with the same text that came to the written
+  line.
+- After `evidence-stamp-differs`, writing the new stamp without reading the
+  line makes the next `check` report nothing.
+- `evidence-stamp-elsewhere` says that one line of the file has the stamp,
+  not that this line is the one first written. An evidence on a common
+  line (an empty line, a closing brace) is reported as
+  `evidence-stamp-differs`.
+- Spaces and tabs at both ends of a line and one CR at its end are not part
+  of the text, also in languages where indentation changes the meaning. A
+  file whose lines end with CR only is one line.
+- A stamp has 8 characters, so two different lines can have the same stamp.
+- When a file is renamed, its evidence gets `evidence-no-file`; `check`
+  does not look for where it went and does not read the git history.
 - It does not read the imports of `.kt` files.
 - It does not look for a use between files of one package, where no import
   is written.
@@ -91,7 +124,8 @@ What `check` does not read or look at for evidence and `.java` files:
 - It does not look for the file of a type whose full name two or more
   files have.
 - It does not look whether the file of an evidence uses the target of the
-  use: only whether the file is there and how many lines it has.
+  use: only whether the file is there, how many lines it has and, with a
+  stamp, whether the line has the stamp.
 - It does not read `about` texts.
 
 ## JS and TS imports
@@ -209,7 +243,8 @@ Only the checks that depend on a broken field are skipped:
   `planned-has-files`.
 - A part whose `uses` is not an array gets no use checks, and steps at that
   part are not checked for gaps. A use that is not an object, or has a
-  missing or malformed `to`, gets no use checks. A `to` that is an
+  missing or malformed `to`, gets no use checks; the `evidence` of a use
+  that is an object is still checked. A `to` that is an
   `unknown-target` is still checked for `repeated-use`.
 - A scenario whose `steps` is not an array gets no `short-scenario` or
   `gap-in-scenario`. A pair of steps where either `at` is broken or unknown

@@ -95,7 +95,7 @@ remove `planned` in the change that adds the code. The tool never changes
 |---|---|---|
 | `to` | yes | The id of a part or an external. |
 | `why` | no | What it is used for. |
-| `evidence` | no | An array of strings, each written as `file:line`: a path from the repository root, a colon and a line number of 1 or more. `check` looks whether the file is there and has that many lines, and says so in an info line when it does not (see [diagnostics](diagnostics.md)). It does not read the line. |
+| `evidence` | no | An array of strings, each written as `file:line` or `file:line#stamp`: a path from the repository root, a colon, a line number of 1 or more, and optionally `#` and the [stamp](#stamps) of that line. `check` looks whether the file is there and has that many lines and, with a stamp, whether the line has the stamp, and says so in an info line when not (see [diagnostics](diagnostics.md)). Without a stamp it does not read the line. |
 | `note` | no | A note for people. |
 
 ### External
@@ -168,6 +168,39 @@ not the counts of a part, and not the layout of the page.
   tool keeps `note` but does not read it.
 - There are no fields for position, size, shape or colour. The page works
   them out from the counts and the structure.
+
+## Stamps
+
+An evidence can end with `#` and the stamp of its line, as in
+`src/cart/checkout.ts:12#5d41402a`. The stamp is written by people (or an
+agent) and is compared by the tool with the stamp the line has now. The
+`stamps` command (see [commands](commands.md#stamps)) gives the stamp of
+each evidence line; read the line before you write its stamp.
+
+The stamp of a line is made from the bytes of the file, not from decoded
+text:
+
+1. The file is split at LF bytes (`0a`). Lines are numbered from 1. Nothing
+   after a last LF is a line, so the lines are the ones `check` counts: an
+   empty file has no line, and a file of one LF byte has one empty line.
+2. One CR byte (`0d`) at the end of the line is taken off, also on a last
+   line without LF.
+3. Then every space (`20`) and tab (`09`) at the start and at the end is
+   taken off. No other byte is: a full-width space, a no-break space, a BOM
+   and NUL are text. Step 2 comes before step 3: the text of the bytes
+   `78 0d 20 0a` is `78 0d`.
+4. The stamp is the first 8 characters of the SHA-256 of the bytes left,
+   written in lowercase hex.
+
+The stamp of an empty line is `e3b0c442`. Bytes that are not UTF-8 are not
+changed, so `ff` and `ef bf bd` give different stamps. Any other tool that
+follows the four steps gives the same stamp, for example
+`printf '%s' 'text of the line' | shasum -a 256 | cut -c1-8`.
+
+A stamp is 8 lowercase hex characters. Any other form after `#` (capital
+letters, 7 or 9 characters, a second `#`) makes the string
+`evidence-not-read`. The plan file `format` stays 1, and `evidence` stays an
+array of strings.
 
 ## References in text
 

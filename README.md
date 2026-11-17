@@ -66,6 +66,11 @@ and add `uses`, externals and scenarios; see the
 `node docs/codeplan/codeplan.mjs summary` prints the same plan as Markdown
 with a mermaid diagram, for a pull request or a README.
 
+`node docs/codeplan/codeplan.mjs stamps` prints one JSON line for each
+evidence entry of the plan: its state, a line and the stamp of that line,
+as the tool reads the file now; see
+[commands](skill/codeplan/docs/commands.md#stamps).
+
 ## Files to commit in the planned repository
 
 | File | What it is |

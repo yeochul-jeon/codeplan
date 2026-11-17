@@ -24,6 +24,7 @@ standard error.
 | `snapshot` | Prints what `check` finds as one JSON document; see [CI](ci.md). Writes nothing. |
 | `report` | Prints the state of the plan, and with `--base` the changes since a snapshot, as Markdown for a pull request; see [CI](ci.md). Writes nothing. |
 | `history <records-dir>` | Prints the records in a directory as one HTML file; see [history](history.md). Reads no repository. Writes nothing. |
+| `stamps` | Prints one JSON line for each evidence entry of the plan: its state, a line and the stamp of that line; see [`stamps`](#stamps). Writes nothing. |
 | `help` | Prints the usage. |
 
 | Option | Command | What it does |
@@ -53,6 +54,7 @@ without the usage.
 | `snapshot` | printed, with or without findings and problems | — | the config cannot be used, or the plan file is not JSON |
 | `report` | printed, with or without findings and problems | — | as for `snapshot`, or the `--base` file cannot be used |
 | `history` | printed, with or without skipped files | — | not one directory given, an option given, the directory cannot be read, or no file in it is a snapshot |
+| `stamps` | printed, also with no line; it does not mean the evidence is right | — | the config cannot be used, there is no plan file, or the plan file is not JSON |
 | `help` | always | — | — |
 
 ## What stops `update` and `check`
@@ -132,3 +134,60 @@ update: docs/codeplan/plan.json not found, so no page was written
 ## `draft`
 
 See [draft](draft.md).
+
+## `stamps`
+
+`stamps` reads the config file, the plan file and the files that evidence
+entries name, and prints one line for each evidence entry. The output is
+for programs and agents. It does not count files and does not look at the
+page place, so it prints also when the page place holds something else or
+a file no evidence names cannot be read. It writes nothing.
+
+```text
+{"at":"parts[0].uses[1].evidence[0]","part":"cart","to":"pay","evidence":"src/cart/checkout.ts:12#5d41402a","state":"elsewhere","line":14,"stamp":"5d41402a"}
+```
+
+Each line is a stamps line: one JSON object without spaces between its
+items, then one LF. A tab or LF in a string is written as `\t` or `\n`,
+so the LF bytes of the output are only at the ends of lines. There is one
+line for each string in an `evidence` array of a use that is an object, in
+a part that is an object and is not a later part with a repeated id, when
+the string is written as `file:line` or `file:line#stamp` (see
+[plan file](plan-file.md#stamps)). Other entries are left out; `check`
+reports them. The lines follow the order of the plan file, and there is no
+limit on their number. With no such entry the output is empty.
+
+| Key | Value |
+|---|---|
+| `at` | The place of the entry in the plan file, as in [diagnostics](diagnostics.md). Two entries with the same string differ here. |
+| `part` | The id of the part, or `null` when it is not a well-formed id. |
+| `to` | The `to` of the use, or `null` when it is not a well-formed id. |
+| `evidence` | The string as written. |
+| `state` | What the tool found; see below. |
+| `line` | A line number, or `null`. |
+| `stamp` | A stamp, or `null`. |
+
+`state`, `line` and `stamp` are what the tool read in the file now. They are
+not values to copy into the plan: read the line first, and write its number
+or stamp only when it still shows the use.
+
+| `state` | When | `line` | `stamp` |
+|---|---|---|---|
+| `same` | The entry has a stamp and the written line has it. | the written line | the written stamp |
+| `no-stamp` | The entry has no stamp and the file has the line. | the written line | the stamp of that line now |
+| `elsewhere` | `check` reports `evidence-stamp-elsewhere`. | the one line that has the stamp | the written stamp |
+| `differs` | `check` reports `evidence-stamp-differs`. | the written line | the stamp of that line now |
+| `no-line` | `check` reports `evidence-no-line`. | `null` | `null` |
+| `no-file` | `check` reports `evidence-no-file`. | `null` | `null` |
+
+For the same plan file and the same files, the `state` of an entry and what
+`check` reports for it agree: `same` and `no-stamp` have no finding.
+
+Exit code 0 means the lines were printed: also with no line, with errors in
+the plan file, or with a plan file whose top level is not an object (then
+no line). Standard error is then empty. Exit code 0 does not mean the
+evidence is right. Exit code 2 means the config cannot be used, there is no
+plan file, the plan file is not JSON, or an option or an extra argument was
+given: nothing on standard output and one line on standard error that
+starts with `codeplan: ` (with the usage for an option or an argument).
+With no plan file it prints no `no-plan` finding.

@@ -127,6 +127,8 @@ pattern that owns it; it also gives how many JS and TS files were read,
 how many import paths gave no file (counting only `.`, `..`, paths that
 start with `./` or `../`, and paths that match a `paths` key), and how many
 `import-needs-check` lines there are. `summary` gives the plan's text with the counts.
+`stamps` gives, for each evidence entry, its state, a line and the stamp of
+that line.
 The tool does not count how many files import a given file, or entry
 points. Count those with a search command, and in
 your report to the person say that they were counted by hand and with which
@@ -195,9 +197,13 @@ scenario passes through, and say in that part's `about` that the others use
 it too.
 
 An `evidence` entry is the line that shows the use, such as the import line
-or the call line, as `file:line`. `check` looks whether the file is there
-and has that many lines, and says so in an info line when it does not. It
-does not read what is on the line.
+or the call line, as `file:line` or `file:line#stamp`. `check` looks whether
+the file is there and has that many lines, and says so in an info line when
+it does not. Without a stamp it does not read what is on the line; with a
+stamp it looks whether the line has the stamp. To write an evidence, read
+the line and write it as `file:line`, run `stamps`, then add `#` and the
+stamp that `stamps` gives for that entry (see
+[plan file](docs/plan-file.md#stamps)).
 
 ## What to decide yourself and what to ask
 
@@ -261,6 +267,13 @@ Read the lists on standard error; each comes with a `fix:` line.
   whether the part is planned, and set `planned` to `true` when it is.
 - `planned-has-files`: a planned part now has files. Remove `planned`; if
   the files are not that part's code, correct its `paths`.
+- `evidence-stamp-elsewhere` or `evidence-stamp-differs` (info): read the
+  line again, the one `stamps` gives for `evidence-stamp-elsewhere` or the
+  written one for `evidence-stamp-differs`. Change the line number or the
+  stamp only when that line still shows the use; a line with the same
+  stamp has the same text, which does not make it the same use. If no line
+  shows the use now, write another line, remove the evidence, or correct
+  the use.
 - Lines marked `[info]` (`task-done-missing`, `task-todo-has-files`,
   `task-path-unowned`) tell about a task and do not fail `check`. Report
   them to the person; correct a wrong path in `makes` yourself, and leave

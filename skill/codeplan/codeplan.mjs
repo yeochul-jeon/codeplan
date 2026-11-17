@@ -1,6 +1,6 @@
 // src/cli.ts
-import { closeSync, lstatSync as lstatSync5, mkdirSync, openSync, readFileSync as readFileSync7, renameSync, rmSync, statSync, writeSync } from "node:fs";
-import { basename, dirname, join as join7, resolve } from "node:path";
+import { closeSync, lstatSync as lstatSync5, mkdirSync, openSync, readFileSync as readFileSync8, renameSync, rmSync, statSync, writeSync } from "node:fs";
+import { basename, dirname, join as join8, resolve } from "node:path";
 
 // src/config.ts
 import { existsSync, readFileSync } from "node:fs";
@@ -1653,7 +1653,7 @@ function draft(repo, options) {
 }
 
 // src/history.ts
-import { lstatSync as lstatSync4, readdirSync as readdirSync2, readFileSync as readFileSync5 } from "node:fs";
+import { lstatSync as lstatSync4, readdirSync as readdirSync2, readFileSync as readFileSync6 } from "node:fs";
 
 // src/page.ts
 var PAGE_MARK = "<!doctype html><!-- codeplan page -->";
@@ -2215,7 +2215,73 @@ function pageHtml(data, frame = FRAME) {
 
 // src/validate.ts
 import { lstatSync as lstatSync3 } from "node:fs";
+import { join as join6 } from "node:path";
+
+// src/stamp.ts
+import { createHash } from "node:crypto";
+import { readFileSync as readFileSync5 } from "node:fs";
 import { join as join5 } from "node:path";
+function stampOf(line) {
+  let end = line.length;
+  if (end > 0 && line[end - 1] === 13) end--;
+  let start = 0;
+  const blank = (b) => b === 32 || b === 9;
+  while (start < end && blank(line[start])) start++;
+  while (end > start && blank(line[end - 1])) end--;
+  return createHash("sha256").update(line.subarray(start, end)).digest("hex").slice(0, 8);
+}
+var built = 0;
+function fileLines(bytes) {
+  built++;
+  const stamps2 = [];
+  for (let start = 0, end; start < bytes.length; start = end + 1) {
+    end = bytes.indexOf(10, start);
+    if (end < 0) end = bytes.length;
+    stamps2.push(stampOf(bytes.subarray(start, end)));
+  }
+  const found = /* @__PURE__ */ new Map();
+  stamps2.forEach((stamp, i) => found.set(stamp, found.has(stamp) ? 0 : i + 1));
+  return { stamps: stamps2, found };
+}
+function cachedLines(repo) {
+  const read = /* @__PURE__ */ new Map();
+  return (path) => {
+    if (!read.has(path)) {
+      try {
+        read.set(path, isPlainFile(repo, path) ? fileLines(readFileSync5(join5(repo, path))) : null);
+      } catch {
+        read.set(path, null);
+      }
+    }
+    return read.get(path);
+  };
+}
+function readEvidence(text) {
+  const colon = text.lastIndexOf(":");
+  const path = text.slice(0, Math.max(colon, 0));
+  const tail = /^([1-9][0-9]*)(?:#([0-9a-f]{8}))?$/.exec(text.slice(colon + 1));
+  if (colon < 0 || tail === null || !isPathForm(path)) return null;
+  return { path, line: Number(tail[1]), stamp: tail[2] ?? null };
+}
+function judge(e, files) {
+  const none = (state) => ({ state, line: null, stamp: null });
+  if (e.stamp === null) {
+    const count2 = files.count(e.path);
+    if (count2 === null) return none("no-file");
+    if (count2 < e.line) return none("no-line");
+    return { state: "no-stamp", line: e.line, stamp: null };
+  }
+  const lines = files.lines(e.path);
+  if (lines === null) return none("no-file");
+  const now = lines.stamps[e.line - 1];
+  if (now === e.stamp) return { state: "same", line: e.line, stamp: e.stamp };
+  const found = lines.found.get(e.stamp);
+  if (found) return { state: "elsewhere", line: found, stamp: e.stamp };
+  if (now === void 0) return none("no-line");
+  return { state: "differs", line: e.line, stamp: now };
+}
+
+// src/validate.ts
 var SEVERITY = {
   "bad-shape": "error",
   "repeated-id": "error",
@@ -2238,6 +2304,8 @@ var SEVERITY = {
   "evidence-not-read": "info",
   "evidence-no-file": "info",
   "evidence-no-line": "info",
+  "evidence-stamp-elsewhere": "info",
+  "evidence-stamp-differs": "info",
   "import-without-use": "info",
   "use-without-import": "info",
   "import-needs-check": "info",
@@ -2354,18 +2422,39 @@ function planTasks(prepared, isFile) {
   }
   return out;
 }
-function evidenceFinding(evidence, lineCount) {
-  const written = JSON.stringify(evidence);
-  const colon = evidence.lastIndexOf(":");
-  const path = evidence.slice(0, Math.max(colon, 0));
-  const line = evidence.slice(colon + 1);
-  if (colon < 0 || !/^[1-9][0-9]*$/.test(line) || !isPathForm(path)) {
-    return ["evidence-not-read", `evidence ${written} is not written as file:line`];
-  }
-  const count2 = lineCount(path);
-  if (count2 === null) return ["evidence-no-file", `the file of evidence ${written} is not a file in the repository`];
-  if (count2 < Number(line)) return ["evidence-no-line", `the file of evidence ${written} does not have that line`];
-  return null;
+function evidenceItems(prepared) {
+  const out = [];
+  if (!isObj2(prepared.raw)) return out;
+  arrayOf(prepared.raw.parts).forEach((part, i) => {
+    if (!isObj2(part) || prepared.repeatedItems.has(part) || !Array.isArray(part.uses)) return;
+    part.uses.forEach((use, k) => {
+      if (!isObj2(use) || !Array.isArray(use.evidence)) return;
+      use.evidence.forEach((evidence, j) => {
+        if (typeof evidence !== "string") return;
+        out.push({
+          at: `parts[${i}].uses[${k}].evidence[${j}]`,
+          part: validId(part.id) ? part.id : null,
+          to: validId(use.to) ? use.to : null,
+          evidence,
+          form: readEvidence(evidence)
+        });
+      });
+    });
+  });
+  return out;
+}
+function evidenceFinding(text, facts) {
+  const written = JSON.stringify(text);
+  const evidence = readEvidence(text);
+  if (evidence === null) return ["evidence-not-read", `evidence ${written} is not written as file:line`];
+  const { state } = judge(evidence, { count: facts.lineCount, lines: facts.stampLines });
+  const sentence = {
+    "no-file": `the file of evidence ${written} is not a file in the repository`,
+    "no-line": `the file of evidence ${written} does not have that line`,
+    elsewhere: `one other line of the file has the stamp of evidence ${written}`,
+    differs: `the line of evidence ${written} does not have its stamp`
+  }[state];
+  return sentence === void 0 ? null : [`evidence-${state.startsWith("no-") ? "" : "stamp-"}${state}`, sentence];
 }
 function diagnosePlan(prepared, facts) {
   const out = [];
@@ -2528,7 +2617,7 @@ function diagnosePlan(prepared, facts) {
       } else if (!repeated) {
         let isFile = false;
         try {
-          isFile = lstatSync3(join5(facts.repo, start), { throwIfNoEntry: false })?.isFile() ?? false;
+          isFile = lstatSync3(join6(facts.repo, start), { throwIfNoEntry: false })?.isFile() ?? false;
         } catch {
           isFile = false;
         }
@@ -2620,7 +2709,7 @@ function diagnosePlan(prepared, facts) {
                 if (typeof e !== "string") {
                   emit("bad-shape", `${uat}.evidence[${j}]`, `${who}evidence must be a string`);
                 } else if (!repeated) {
-                  const found = evidenceFinding(e, facts.lineCount);
+                  const found = evidenceFinding(e, facts);
                   if (found !== null) emit(found[0], `${uat}.evidence[${j}]`, `${who}${found[1]}`);
                 }
               });
@@ -3149,7 +3238,7 @@ function readRecords(dir) {
     }
     let text;
     try {
-      text = readFileSync5(path, "utf8");
+      text = readFileSync6(path, "utf8");
     } catch {
       skipped.push({ file, reason: "cannot read" });
       continue;
@@ -3165,7 +3254,7 @@ function readRecords(dir) {
     }
     let text;
     try {
-      text = readFileSync5(path, "utf8");
+      text = readFileSync6(path, "utf8");
     } catch {
       skipped.push({ file, reason: "cannot read" });
       continue;
@@ -3437,17 +3526,17 @@ ${recordBlocks(c).join("\n")}
 }
 
 // src/plan.ts
-import { existsSync as existsSync3, readFileSync as readFileSync6 } from "node:fs";
-import { join as join6 } from "node:path";
+import { existsSync as existsSync3, readFileSync as readFileSync7 } from "node:fs";
+import { join as join7 } from "node:path";
 function planPath(home) {
   return `${home}/plan.json`;
 }
 function readPlanFile(repo, home) {
   const relative = planPath(home);
-  const file = join6(repo, relative);
+  const file = join7(repo, relative);
   if (!existsSync3(file)) return { kind: "missing" };
   try {
-    return { kind: "json", value: JSON.parse(readFileSync6(file, "utf8")) };
+    return { kind: "json", value: JSON.parse(readFileSync7(file, "utf8")) };
   } catch (e) {
     return { kind: "not-json", message: `${relative} is not valid JSON: ${e.message}` };
   }
@@ -3899,6 +3988,8 @@ Commands:
           the next. A record is a file that holds what snapshot printed.
           Takes the directory and no option, and reads no repository.
           Writes nothing.
+  stamps  Print each evidence entry as one JSON line with its state, a
+          line and that line's stamp. Writes nothing.
   help    Show this text.
 
 Options:
@@ -3938,38 +4029,33 @@ the plan file is not JSON, or the --base file cannot be used.
 Exit codes for history: 0 printed (skipped files do not change it); 2 not
 one directory given, an option given, the directory cannot be read, or no
 file in it is a snapshot.
+Exit codes for stamps: 0 printed; 2 as for snapshot, or no plan file.
 `;
 var LIST_LIMIT2 = 30;
-var COMMANDS = ["check", "update", "draft", "summary", "snapshot", "report", "history", "help"];
+var COMMANDS = ["check", "update", "draft", "summary", "snapshot", "report", "history", "stamps", "help"];
 var OPTIONS = ["--repo", "--no-page", "--max-parts", "--parts-by-name", "--language", "--root", "--mermaid", "--base"];
 function pagePlace(repo, page) {
   const segments = page.split("/");
   for (let i = 1; i < segments.length; i++) {
-    const dir = lstatSync5(join7(repo, ...segments.slice(0, i)), { throwIfNoEntry: false });
+    const dir = lstatSync5(join8(repo, ...segments.slice(0, i)), { throwIfNoEntry: false });
     if (dir === void 0) break;
     if (dir.isSymbolicLink()) return { kind: "other", what: "a path through a symbolic link" };
     if (!dir.isDirectory()) return { kind: "other", what: "a path that passes through a file" };
   }
-  const stat = lstatSync5(join7(repo, page), { throwIfNoEntry: false });
+  const stat = lstatSync5(join8(repo, page), { throwIfNoEntry: false });
   if (stat === void 0) return { kind: "absent" };
   if (stat.isSymbolicLink()) return { kind: "other", what: "a symbolic link" };
   if (!stat.isFile()) return { kind: "other", what: stat.isDirectory() ? "a directory" : "not a regular file" };
-  const bytes = readFileSync7(join7(repo, page));
+  const bytes = readFileSync8(join8(repo, page));
   if (!bytes.subarray(0, PAGE_MARK.length).equals(Buffer.from(PAGE_MARK))) {
     return { kind: "other", what: "a file that does not start with the codeplan page mark" };
   }
   return { kind: "page", bytes };
 }
 function check(repo, page = "compare") {
-  let config;
-  try {
-    config = readConfig(repo);
-  } catch (e) {
-    if (e instanceof SettingsError) return { kind: "error", message: e.message };
-    throw e;
-  }
-  const file = readPlanFile(repo, config.home);
-  if (file.kind === "not-json") return { kind: "error", message: file.message };
+  const read = readInputs(repo);
+  if (typeof read === "string") return { kind: "error", message: read };
+  const { config, file } = read;
   const place = page === "skip" ? { kind: "absent" } : pagePlace(repo, config.page);
   if (place.kind === "other" && page === "compare") {
     return {
@@ -3995,6 +4081,8 @@ function check(repo, page = "compare") {
   const isFile = (path) => isPlainFile(repo, path);
   const tasks = planTasks(prepared, isFile);
   const otherLines = /* @__PURE__ */ new Map();
+  const stamped = new Set(evidenceItems(prepared).flatMap((item) => item.form?.stamp ? [item.form.path] : []));
+  const stampLines = cachedLines(repo);
   const judged = prepared.excluded === 0 && measurement.contested.length === 0;
   const js = judged && config.languages.includes("js") ? jsFacts(repo, measurement.owners, measurement.js, isFile) : null;
   const diagnostics = diagnosePlan(prepared, {
@@ -4003,13 +4091,15 @@ function check(repo, page = "compare") {
     unowned: unownedTest(config, prepared.parts),
     files: new Map(measurement.parts.map((p2) => [p2.id, p2.files])),
     owners: measurement.owners,
+    stampLines,
     lineCount: (path) => {
+      if (stamped.has(path)) return stampLines(path)?.stamps.length ?? null;
       const measuredLines = measurement.lines.get(path);
       if (measuredLines !== void 0) return measuredLines;
       if (!otherLines.has(path)) {
         let count2 = null;
         try {
-          if (isPlainFile(repo, path)) count2 = lineTotal(readFileSync7(join7(repo, path)));
+          if (isPlainFile(repo, path)) count2 = lineTotal(readFileSync8(join8(repo, path)));
         } catch {
           count2 = null;
         }
@@ -4038,6 +4128,35 @@ function check(repo, page = "compare") {
   const current = place.kind === "page" && place.bytes.equals(bytes);
   const state = place.kind === "absent" ? "missing" : current ? "ok" : "outdated";
   return { ...result2, page: { path: config.page, bytes, current, state } };
+}
+function stamps(repo) {
+  const read = readInputs(repo);
+  const message = typeof read === "string" ? read : read.file.kind === "json" ? null : `${planPath(read.config.home)} not found`;
+  if (message !== null) return { code: 2, stdout: "", stderr: `codeplan: ${message}
+` };
+  const file = read.file;
+  const lines = cachedLines(repo);
+  let stdout = "";
+  for (const item of evidenceItems(preparePlan(file.value))) {
+    const e = item.form;
+    if (e === null) continue;
+    const found = judge(e, { count: (path) => lines(path)?.stamps.length ?? null, lines });
+    const stamp = found.state === "no-stamp" ? lines(e.path).stamps[e.line - 1] : found.stamp;
+    stdout += `${JSON.stringify({ ...item, form: void 0, ...found, stamp })}
+`;
+  }
+  return { code: 0, stdout, stderr: "" };
+}
+function readInputs(repo) {
+  let config;
+  try {
+    config = readConfig(repo);
+  } catch (e) {
+    if (e instanceof SettingsError) return e.message;
+    throw e;
+  }
+  const file = readPlanFile(repo, config.home);
+  return file.kind === "not-json" ? file.message : { config, file };
 }
 function pageFor(plan, m, tasks) {
   const raw = plan;
@@ -4124,12 +4243,12 @@ function update(repo) {
   }
   if (page.current) return { code: 0, stdout: `update: ${page.path} is up to date
 `, stderr: "" };
-  const target = join7(repo, page.path);
+  const target = join8(repo, page.path);
   let temp = null;
   try {
     mkdirSync(dirname(target), { recursive: true });
     for (let n = 0; temp === null; n++) {
-      const name = join7(dirname(target), `.${basename(target)}.${process.pid}.${n}.tmp`);
+      const name = join8(dirname(target), `.${basename(target)}.${process.pid}.${n}.tmp`);
       try {
         const fd = openSync(name, "wx");
         temp = name;
@@ -4172,6 +4291,8 @@ var FIXES = {
   "evidence-not-read": "write the evidence as a path from the repository root, a colon and a line number of 1 or more",
   "evidence-no-file": "write the path of a file that is in the repository, or remove the evidence",
   "evidence-no-line": "write the line that shows the use as the file is now, or remove the evidence",
+  "evidence-stamp-elsewhere": "read the line stamps gives and write its number only if it still shows the use; the same stamp only means the same text",
+  "evidence-stamp-differs": "read the line: if it still shows the use, write the stamp stamps gives; if not, write another line, remove the evidence or correct the use",
   "import-without-use": "add a use of that part to this part's uses; nothing has to change if the plan is not to show that use",
   "use-without-import": "nothing has to change if the part uses the other without an import line; remove the use if it is no longer there",
   "import-needs-check": "look at the import path in the file: add a use of that part if the code uses it; nothing has to change if the import is commented out or is only text",
@@ -4215,7 +4336,7 @@ function report(repo, baseFile) {
     try {
       let text;
       try {
-        text = readFileSync7(baseFile, "utf8");
+        text = readFileSync8(baseFile, "utf8");
       } catch {
         throw new Error("it cannot be read");
       }
@@ -4415,6 +4536,7 @@ ${USAGE}`
   if (command === "summary") return summary(repo, mermaid);
   if (command === "snapshot") return snapshot(repo);
   if (command === "report") return report(repo, base);
+  if (command === "stamps") return stamps(repo);
   const result2 = check(repo, noPage ? "skip" : "compare");
   if (result2.kind === "error") {
     return { code: 2, stdout: "", stderr: `codeplan: ${result2.message}

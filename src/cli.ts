@@ -1,5 +1,5 @@
 // Command line: `check`, `update`, `draft`, `summary`, `snapshot`, `report`,
-// `history` and `help`.
+// `history`, `stamps` and `help`.
 import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { SettingsError, readConfig, type Config } from "./config.js";
@@ -9,13 +9,14 @@ import { importFacts } from "./imports.js";
 import { jsFacts } from "./jsimports.js";
 import { lineTotal } from "./lines.js";
 import { isPlainFile, measure, unownedTest, type Measurement } from "./measure.js";
-import { planPath, readPlanFile, type PlanPart } from "./plan.js";
+import { planPath, readPlanFile, type PlanFile, type PlanPart } from "./plan.js";
 import { readSnapshot, reportText, snapshotText, takeSnapshot, type PageState, type Snapshot } from "./report.js";
 import { layOut } from "./layout.js";
 import { PAGE_MARK, pageHtml } from "./page.js";
 import { raisedPicture } from "./raised.js";
+import { cachedLines, judge } from "./stamp.js";
 import { mermaidText, summaryText } from "./summary.js";
-import { diagnosePlan, diagnostic, planTasks, preparePlan, type Diagnostic, type PlanTask } from "./validate.js";
+import { diagnosePlan, diagnostic, evidenceItems, planTasks, preparePlan, type Diagnostic, type PlanTask } from "./validate.js";
 
 export interface RunResult {
   code: number;
@@ -73,6 +74,8 @@ Commands:
           the next. A record is a file that holds what snapshot printed.
           Takes the directory and no option, and reads no repository.
           Writes nothing.
+  stamps  Print each evidence entry as one JSON line with its state, a
+          line and that line's stamp. Writes nothing.
   help    Show this text.
 
 Options:
@@ -112,12 +115,13 @@ the plan file is not JSON, or the --base file cannot be used.
 Exit codes for history: 0 printed (skipped files do not change it); 2 not
 one directory given, an option given, the directory cannot be read, or no
 file in it is a snapshot.
+Exit codes for stamps: 0 printed; 2 as for snapshot, or no plan file.
 `;
 
 const LIST_LIMIT = 30;
 
 // The commands and options the command line takes.
-export const COMMANDS = ["check", "update", "draft", "summary", "snapshot", "report", "history", "help"];
+export const COMMANDS = ["check", "update", "draft", "summary", "snapshot", "report", "history", "stamps", "help"];
 export const OPTIONS = ["--repo", "--no-page", "--max-parts", "--parts-by-name", "--language", "--root", "--mermaid", "--base"];
 
 // What is at the page place: nothing, a codeplan page, or something else.
@@ -148,15 +152,9 @@ function pagePlace(repo: string, page: string): { kind: "absent" } | { kind: "pa
 // the place is not read) or "note" (snapshot and report: something else
 // there is noted as a foreign page).
 export function check(repo: string, page: "compare" | "skip" | "note" = "compare"): CheckResult {
-  let config: Config;
-  try {
-    config = readConfig(repo);
-  } catch (e) {
-    if (e instanceof SettingsError) return { kind: "error", message: e.message };
-    throw e;
-  }
-  const file = readPlanFile(repo, config.home);
-  if (file.kind === "not-json") return { kind: "error", message: file.message };
+  const read = readInputs(repo);
+  if (typeof read === "string") return { kind: "error", message: read };
+  const { config, file } = read;
   const place = page === "skip" ? { kind: "absent" as const } : pagePlace(repo, config.page);
   if (place.kind === "other" && page === "compare") {
     return {
@@ -186,6 +184,9 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
   const tasks = planTasks(prepared, isFile);
   // The line counts of evidence files that are not measured, each read once.
   const otherLines = new Map<string, number | null>();
+  // A file of stamped evidence: one read for its count and lines.
+  const stamped = new Set(evidenceItems(prepared).flatMap((item) => (item.form?.stamp ? [item.form.path] : [])));
+  const stampLines = cachedLines(repo);
   const judged = prepared.excluded === 0 && measurement.contested.length === 0;
   const js = judged && config.languages.includes("js") ? jsFacts(repo, measurement.owners, measurement.js, isFile) : null;
   const diagnostics = diagnosePlan(prepared, {
@@ -194,7 +195,9 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
     unowned: unownedTest(config, prepared.parts),
     files: new Map(measurement.parts.map((p) => [p.id, p.files])),
     owners: measurement.owners,
+    stampLines,
     lineCount: (path) => {
+      if (stamped.has(path)) return stampLines(path)?.stamps.length ?? null;
       // A measured file was read when it was measured.
       const measuredLines = measurement.lines.get(path);
       if (measuredLines !== undefined) return measuredLines;
@@ -236,6 +239,37 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
   const current = place.kind === "page" && place.bytes.equals(bytes);
   const state = place.kind === "absent" ? "missing" : current ? "ok" : "outdated";
   return { ...result, page: { path: config.page, bytes, current, state } };
+}
+
+function stamps(repo: string): RunResult {
+  const read = readInputs(repo);
+  const message = typeof read === "string" ? read : read.file.kind === "json" ? null : `${planPath(read.config.home)} not found`;
+  if (message !== null) return { code: 2, stdout: "", stderr: `codeplan: ${message}\n` };
+  const file = (read as { file: { value: unknown } }).file;
+  const lines = cachedLines(repo);
+  let stdout = "";
+  for (const item of evidenceItems(preparePlan(file.value))) {
+    const e = item.form;
+    if (e === null) continue;
+    const found = judge(e, { count: (path) => lines(path)?.stamps.length ?? null, lines });
+    const stamp = found.state === "no-stamp" ? lines(e.path)!.stamps[e.line - 1]! : found.stamp;
+    // Keys in this order: at, part, to, evidence, state, line, stamp.
+    stdout += `${JSON.stringify({ ...item, form: undefined, ...found, stamp })}\n`;
+  }
+  return { code: 0, stdout, stderr: "" };
+}
+
+// The config and the plan file, or why they cannot be used.
+function readInputs(repo: string): { config: Config; file: Exclude<PlanFile, { kind: "not-json" }> } | string {
+  let config: Config;
+  try {
+    config = readConfig(repo);
+  } catch (e) {
+    if (e instanceof SettingsError) return e.message;
+    throw e;
+  }
+  const file = readPlanFile(repo, config.home);
+  return file.kind === "not-json" ? file.message : { config, file };
 }
 
 // The page for a plan with no error diagnostic: every part is an object
@@ -380,6 +414,10 @@ const FIXES: Record<string, string> = {
   "evidence-not-read": "write the evidence as a path from the repository root, a colon and a line number of 1 or more",
   "evidence-no-file": "write the path of a file that is in the repository, or remove the evidence",
   "evidence-no-line": "write the line that shows the use as the file is now, or remove the evidence",
+  "evidence-stamp-elsewhere":
+    "read the line stamps gives and write its number only if it still shows the use; the same stamp only means the same text",
+  "evidence-stamp-differs":
+    "read the line: if it still shows the use, write the stamp stamps gives; if not, write another line, remove the evidence or correct the use",
   "import-without-use":
     "add a use of that part to this part's uses; nothing has to change if the plan is not to show that use",
   "use-without-import":
@@ -632,6 +670,7 @@ export function run(argv: readonly string[], cwd: string): RunResult {
   if (command === "summary") return summary(repo, mermaid);
   if (command === "snapshot") return snapshot(repo);
   if (command === "report") return report(repo, base);
+  if (command === "stamps") return stamps(repo);
   const result = check(repo, noPage ? "skip" : "compare");
   if (result.kind === "error") {
     return { code: 2, stdout: "", stderr: `codeplan: ${result.message}\n` };
