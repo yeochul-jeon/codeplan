@@ -18,7 +18,7 @@ counts files and lines for each part from its `paths`.
       "start": "src/cart/index.ts",
       "paths": ["src/cart/**"],
       "uses": [
-        { "to": "pay", "why": "to charge the order", "evidence": ["src/cart/checkout.ts:12"] }
+        { "to": "pay", "why": "to charge the order", "evidence": ["src/cart/checkout.ts:12#2d711642"] }
       ]
     },
     {
@@ -172,7 +172,7 @@ not the counts of a part, and not the layout of the page.
 ## Stamps
 
 An evidence can end with `#` and the stamp of its line, as in
-`src/cart/checkout.ts:12#5d41402a`. The stamp is written by people (or an
+`src/cart/checkout.ts:12#2d711642`. The stamp is written by people (or an
 agent) and is compared by the tool with the stamp the line has now. The
 `stamps` command (see [commands](commands.md#stamps)) gives the stamp of
 each evidence line; read the line before you write its stamp.

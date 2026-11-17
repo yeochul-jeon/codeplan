@@ -104,7 +104,7 @@ describe("the findings", () => {
     expect(lines).toEqual([
       `parts[0].uses[0].evidence[0]: evidence-stamp-elsewhere [info] part "a": one other line of the file has the stamp of evidence "f:1#${x}"`,
       `parts[0].uses[0].evidence[1]: evidence-stamp-differs [info] part "a": the line of evidence "f:2#${H("z")}" does not have its stamp`,
-      expect.stringMatching(/^ {2}fix: evidence-stamp-elsewhere: read the line stamps gives/),
+      expect.stringMatching(/^ {2}fix: evidence-stamp-elsewhere: read the line the stamps command gives/),
       expect.stringMatching(/^ {2}fix: evidence-stamp-differs: read the line: /),
     ]);
   });

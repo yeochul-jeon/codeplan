@@ -225,8 +225,9 @@ export interface MeasuredFacts {
   // The line count of the file at a path; null when no file can be read
   // there.
   lineCount: (path: string) => number | null;
-  // Needed when the plan has stamped evidence.
-  stampLines?: (path: string) => FileLines | null;
+  // The lines of a file that a stamped evidence names; null when no file
+  // can be read there.
+  stampLines: (path: string) => FileLines | null;
   // What the .java files import; null when imports are not judged (no java
   // rules, a part that is not measured, or a contested file).
   imports: ImportFacts | null;
@@ -272,7 +273,7 @@ function evidenceFinding(text: string, facts: MeasuredFacts): [code: string, sen
   const written = JSON.stringify(text);
   const evidence = readEvidence(text);
   if (evidence === null) return ["evidence-not-read", `evidence ${written} is not written as file:line`];
-  const { state } = judge(evidence, { count: facts.lineCount, lines: facts.stampLines! });
+  const { state } = judge(evidence, { count: facts.lineCount, lines: facts.stampLines });
   const sentence = {
     "no-file": `the file of evidence ${written} is not a file in the repository`,
     "no-line": `the file of evidence ${written} does not have that line`,

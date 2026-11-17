@@ -417,9 +417,9 @@ const FIXES: Record<string, string> = {
   "evidence-no-file": "write the path of a file that is in the repository, or remove the evidence",
   "evidence-no-line": "write the line that shows the use as the file is now, or remove the evidence",
   "evidence-stamp-elsewhere":
-    "read the line stamps gives and write its number only if it still shows the use; the same stamp only means the same text",
+    "read the line the stamps command gives and write its number only if it still shows the use; the same stamp only means the same text",
   "evidence-stamp-differs":
-    "read the line: if it still shows the use, write the stamp stamps gives; if not, write another line, remove the evidence or correct the use",
+    "read the line: if it still shows the use, write the stamp the stamps command gives; if not, write another line, remove the evidence or correct the use",
   "import-without-use":
     "add a use of that part to this part's uses; nothing has to change if the plan is not to show that use",
   "use-without-import":

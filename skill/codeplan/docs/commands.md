@@ -154,7 +154,7 @@ page place, so it prints also when the page place holds something else or
 a file no evidence names cannot be read. It writes nothing.
 
 ```text
-{"at":"parts[0].uses[1].evidence[0]","part":"cart","to":"pay","evidence":"src/cart/checkout.ts:12#5d41402a","state":"elsewhere","line":14,"stamp":"5d41402a"}
+{"at":"parts[0].uses[1].evidence[0]","part":"cart","to":"pay","evidence":"src/cart/checkout.ts:12#2d711642","state":"elsewhere","line":14,"stamp":"2d711642"}
 ```
 
 Each line is a stamps line: one JSON object without spaces between its
