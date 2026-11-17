@@ -110,8 +110,8 @@ After `draft`, read the code in this order to find the files of each part
 2. the entry points: what is written down as one (`bin`, `main`, `exports`
    and `scripts` in `package.json`, the start class set in a build file, a
    class with a `main` method) and where the code declares how requests come
-   in (routes, controller annotations, CLI commands, scheduled jobs). A
-   file name alone does not make a file an entry point;
+   in (routes, controller annotations, CLI commands, scheduled jobs, message
+   handlers). A file name alone does not make a file an entry point;
 3. the files that many other files import;
 4. the imports, followed from the entry points to the files of each part.
 
@@ -208,9 +208,9 @@ Ask the person before you:
 - write a use, an external or a scenario step you could not confirm in the
   code;
 - move files between parts in a way that changes what a part means;
-- add files to `skip`. `skip` takes files out of what `check` counts; it
-  does not keep you from reading them to understand the code (generated
-  code, code copied in from elsewhere);
+- add files to `skip`, such as generated code or code copied in from
+  elsewhere. `skip` takes files out of what `check` counts; it does not
+  keep you from reading them to understand the code;
 - change `languages`, `roots` or `watch` away from what `draft` proposed;
 - change the `status` of a task. The status is the person's to set. When
   the work of a task looks finished to you, say so and ask before you write
