@@ -50,7 +50,7 @@ last line of `check`, and with nothing else to report that line is
 | `use-without-import` | info | `uses[i].to` | The use names a part, both parts have `.java` files, and no file of this part imports a file of that part. Only for `.java` files: JS and TS code often uses other code with no import (globals, injection, paths in strings). | Nothing has to change if the part uses the other without an import line. Remove the use if it is no longer there. |
 | `import-needs-check` | info | `parts[i].uses` | An import path of a JS or TS file of this part reaches a file of another part, but only when comments and strings are read too; the two parts are not an import pair and this part has no use of that part. The message names the first such file and its first such import path. | Look at the import in the file. Add a use of that part if the code uses it; nothing has to change if the import is commented out or is only text. |
 | `tsconfig-not-read` | info | `plan` | A `tsconfig.json` or `jsconfig.json` that a JS or TS file reads its aliases from, or a config it extends, is not JSON, or a relative `extends` names no file. | Make the config valid JSON (comments and trailing commas are allowed), or correct the path in `extends`. |
-| `tsconfig-references-not-followed` | info | `plan` | That config has `references`, and no `paths` or `baseUrl` of its own or from its `extends`. | Nothing has to change if no import path uses an alias of the referenced configs; otherwise write those `paths` or `baseUrl` in this config too. |
+| `tsconfig-references-not-followed` | info | `plan` | That config has `references`, and no `paths` or `baseUrl` of its own or from its `extends`. The configs that `references` names are not read, so in such a repository no import written with one of their aliases makes an import pair, and none of them is counted as not resolved. | Nothing has to change if no import path uses an alias of the referenced configs; otherwise write those `paths` or `baseUrl` in this config too. |
 
 ## Evidence and imports
 
@@ -154,9 +154,13 @@ What `check` does not read or look at in JS and TS files:
   of an ending written in a `paths` value. In a Node16 or NodeNext ES
   module file, a relative import with no ending is read, where TypeScript
   stops with an error.
-- It does not tell an import inside a `declare global { … }` block from
-  others: it reads it as an import, where TypeScript reports an error and
-  makes no relation.
+- It does not tell an import inside a block from one at the top of the
+  file. In a module file, the imports inside `declare global { … }`,
+  `declare module "…" { … }` and `namespace` blocks, relative import paths
+  in `declare module` included, are read like the others; TypeScript makes
+  no relation from them.
+- It does not put anything in place of `${configDir}` in `paths` and
+  `baseUrl` values, so an alias written with it gives no file.
 - It does not tell a `/` after `)` that starts a regular expression from a
   division. When a template that holds text like an import comes later, the
   import path is found in both readings and makes an import pair with no

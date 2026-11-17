@@ -88,6 +88,13 @@ describe("reading a file: the blanked text and the text as written", () => {
     expect(out.checks).toEqual(onlyWritten.map((p) => `${idOf(`src/${p.slice(2)}.ts`)} ${JSON.stringify(p)}`));
   });
 
+  test("an import inside declare global in a module file makes an import pair", () => {
+    // A known difference: TypeScript makes no relation from it.
+    const out = judge({ "src/g.d.ts": 'export {};\ndeclare global {\n  import type { X } from "./x";\n}\n', "src/x.ts": "" }, { from: "src/g.d.ts" });
+    expect(out.pairs).toEqual(["src-x-ts"]);
+    expect(out.checks).toEqual([]);
+  });
+
   test("the blanked text keeps every line break and the length; a / right after a template is a division", () => {
     const text = "a // c\n's'\n`t${'u'}v`\n/r/.x /* d\ne */ b";
     const out = erased(text);
