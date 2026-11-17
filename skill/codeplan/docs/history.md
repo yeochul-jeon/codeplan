@@ -126,4 +126,7 @@ The button at the bottom changes the colour theme, as on the page (see
 0 when the file was printed, with or without skipped files. 2, with one
 line on standard error after the lines for skipped files, when it is not
 given exactly one directory, when an option is given (`--repo` too), when
-the directory cannot be read, or when no file in it is a snapshot.
+the directory does not exist or its path cannot be looked at (a name too
+long, no permission), when the directory cannot be read, or when no file in
+it is a snapshot. 3 on an error that codeplan did not expect (see
+[commands](commands.md#exit-codes)).

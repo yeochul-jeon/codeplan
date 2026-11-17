@@ -9,8 +9,9 @@ node docs/codeplan/codeplan.mjs history <records-dir>
 ```
 
 The repository is the current directory. `--repo <dir>` names another one;
-a directory that does not exist (or is a file) gives exit code 2 and one
-line naming the path.
+a directory that does not exist (or is a file), or a path that cannot be
+looked at (a name too long, no permission), gives exit code 2 and one line
+naming the path.
 
 Output for people goes to standard output; problem lists and errors go to
 standard error.
@@ -45,17 +46,26 @@ without the usage.
 
 ## Exit codes
 
-| Command | 0 | 1 | 2 |
-|---|---|---|---|
-| `check` | no problems | orphans, contested or unwatched files, an out of date page, or a warning | the config or plan file cannot be read, an error in the plan file, or something other than a codeplan page at the page place |
-| `update` | written, already up to date, or no plan file | contested files (nothing written) | as for `check` |
-| `draft` | printed | — | an option, the config file or the repository cannot be used |
-| `summary` | printed, with or without warnings, orphans, contested or unwatched files | — | an error in the plan file, no plan file, or the config or plan file cannot be read |
-| `snapshot` | printed, with or without findings and problems | — | the config cannot be used, or the plan file is not JSON |
-| `report` | printed, with or without findings and problems | — | as for `snapshot`, or the `--base` file cannot be used |
-| `history` | printed, with or without skipped files | — | not one directory given, an option given, the directory cannot be read, or no file in it is a snapshot |
-| `stamps` | printed, also with no line; it does not mean the evidence is right | — | the config cannot be used, there is no plan file, or the plan file is not JSON |
-| `help` | always | — | — |
+| Command | 0 | 1 | 2 | 3 |
+|---|---|---|---|---|
+| `check` | no problems | orphans, contested or unwatched files, an out of date page, or a warning | the config or plan file cannot be read, an error in the plan file, or something other than a codeplan page at the page place | an unexpected error |
+| `update` | written, already up to date, or no plan file | contested files (nothing written) | as for `check` | an unexpected error |
+| `draft` | printed | — | an option, the config file or the repository cannot be used | an unexpected error |
+| `summary` | printed, with or without warnings, orphans, contested or unwatched files | — | an error in the plan file, no plan file, or the config or plan file cannot be read | an unexpected error |
+| `snapshot` | printed, with or without findings and problems | — | the config cannot be used, or the plan file is not JSON | an unexpected error |
+| `report` | printed, with or without findings and problems | — | as for `snapshot`, or the `--base` file cannot be used | an unexpected error |
+| `history` | printed, with or without skipped files | — | not one directory given, an option given, the directory cannot be read, or no file in it is a snapshot | an unexpected error |
+| `stamps` | printed, also with no line; it does not mean the evidence is right | — | the config cannot be used, there is no plan file, or the plan file is not JSON | an unexpected error |
+| `help` | always | — | — | an unexpected error |
+
+Exit code 3 is for an error that no rule above expected, thrown while
+codeplan reads the working directory or runs the command. Standard output
+is then empty, and standard error has one line,
+`codeplan: unexpected error: <text>`, where the text is the error message
+with each control character made a space. When the environment variable
+`CODEPLAN_STACK` is set and not empty, the stack of the error follows that
+line. Files that `update` wrote before the error stay as they are. The
+errors that the table gives exit code 2 for still give 2.
 
 ## What stops `update` and `check`
 

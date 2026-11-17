@@ -155,3 +155,7 @@ path, so the same tree gives the same bytes.
 |---|---|---|
 | `snapshot` | printed | the repository or config cannot be used, the plan file is not JSON, or an option is unknown |
 | `report` | printed | as for `snapshot`, or the `--base` file is missing, is not JSON, is not a snapshot, or has another `snapshot` or `rules` value |
+
+Any command exits with 3 on an error that codeplan did not expect (see
+[commands](commands.md#exit-codes)). A CI step fails on it as on 1 or 2;
+set `CODEPLAN_STACK` to `1` in the step to print the stack.

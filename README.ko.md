@@ -109,7 +109,9 @@ jobs:
 contested, unwatched 파일이 있거나, 계획 파일에 경고가 있거나, `update`가
 바꿀 page가 있습니다. `update`를 실행하고 나열된 문제를 고친 뒤
 커밋합니다. 종료 코드 2는 설정 파일이나 계획 파일을 쓸 수 없거나 계획
-파일에 오류가 있다는 뜻입니다.
+파일에 오류가 있다는 뜻입니다. 종료 코드 3은 codeplan이 예상하지 못한
+오류입니다. 한 줄을 출력하고, `CODEPLAN_STACK`이 설정되어 있으면 스택도
+출력합니다.
 
 pull request에서는 `report`가 계획이 어떤 상태인지와 그 pull request가
 어느 part를 바꿨는지를 job summary에 넣을 Markdown으로 씁니다. 그

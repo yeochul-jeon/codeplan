@@ -116,6 +116,8 @@ Exit codes for history: 0 printed (skipped files do not change it); 2 not
 one directory given, an option given, the directory cannot be read, or no
 file in it is a snapshot.
 Exit codes for stamps: 0 printed; 2 as for snapshot, or no plan file.
+Exit code 3 for any command: an unexpected error, in one line. Set
+CODEPLAN_STACK to print its stack too.
 `;
 
 const LIST_LIMIT = 30;
@@ -485,6 +487,16 @@ function report(repo: string, baseFile: string | undefined): RunResult {
   return "snapshot" in head ? { code: 0, stdout: reportText(head, base), stderr: "" } : head;
 }
 
+// False also when the path cannot be looked at (a name too long, no
+// permission).
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 // history reads a records directory and nothing else. Its errors are one
 // line, without the usage text.
 function history(args: readonly string[], cwd: string): RunResult {
@@ -493,7 +505,7 @@ function history(args: readonly string[], cwd: string): RunResult {
   if (option !== undefined) return fail(`history takes no options, and ${option} was given`);
   if (args.length !== 1) return fail("history takes one records directory");
   const dir = resolve(cwd, args[0]!);
-  if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return fail(`records directory not found: ${dir}`);
+  if (!isDirectory(dir)) return fail(`records directory not found: ${dir}`);
   let read: ReturnType<typeof readRecords>;
   try {
     read = readRecords(dir);
@@ -647,7 +659,7 @@ export function run(argv: readonly string[], cwd: string): RunResult {
   if (partsByName !== undefined && !/^[0-9]*[1-9][0-9]*$/.test(partsByName)) {
     return usageError(`--parts-by-name needs a whole number of 1 or more, not "${partsByName}"`);
   }
-  if (!statSync(repo, { throwIfNoEntry: false })?.isDirectory()) {
+  if (!isDirectory(repo)) {
     return { code: 2, stdout: "", stderr: `codeplan: repository not found: ${repo}\n` };
   }
   if (command === "draft") {
@@ -676,4 +688,21 @@ export function run(argv: readonly string[], cwd: string): RunResult {
     return { code: 2, stdout: "", stderr: `codeplan: ${result.message}\n` };
   }
   return checkReport(result, noPage);
+}
+
+// The entry point: an error that nothing above expected, thrown while the
+// working directory is read or the command runs, gives exit code 3 and one
+// line (control characters made spaces); the stack follows when
+// CODEPLAN_STACK is set.
+export function main(argv: readonly string[], cwd: () => string, env: NodeJS.ProcessEnv, command = run): RunResult {
+  try {
+    return command(argv, cwd());
+  } catch (e) {
+    let text = "";
+    try {
+      text = e instanceof Error && typeof e.message === "string" ? e.message : String(e);
+    } catch {}
+    const stack = env.CODEPLAN_STACK && typeof (e as Error | null)?.stack === "string" ? `${(e as Error).stack}\n` : "";
+    return { code: 3, stdout: "", stderr: `codeplan: unexpected error: ${text.replace(/[\0-\x1f\x7f\x85\u2028\u2029]/g, " ")}\n${stack}` };
+  }
 }

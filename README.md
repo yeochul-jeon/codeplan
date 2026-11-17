@@ -110,7 +110,8 @@ Exit code 1 means the plan is out of date with the code: there are orphan,
 contested or unwatched files, a warning in the plan file, or a page that
 `update` would change. Run `update`, fix the listed problems and commit.
 Exit code 2 means the config file or plan file cannot be used, or the plan
-file has an error.
+file has an error. Exit code 3 means an error that codeplan did not expect;
+it prints one line, and the stack too when `CODEPLAN_STACK` is set.
 
 For pull requests, `report` writes what state the plan is in and which
 parts the pull request changed, as Markdown for the job summary. The

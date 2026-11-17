@@ -4030,6 +4030,8 @@ Exit codes for history: 0 printed (skipped files do not change it); 2 not
 one directory given, an option given, the directory cannot be read, or no
 file in it is a snapshot.
 Exit codes for stamps: 0 printed; 2 as for snapshot, or no plan file.
+Exit code 3 for any command: an unexpected error, in one line. Set
+CODEPLAN_STACK to print its stack too.
 `;
 var LIST_LIMIT2 = 30;
 var COMMANDS = ["check", "update", "draft", "summary", "snapshot", "report", "history", "stamps", "help"];
@@ -4349,6 +4351,13 @@ function report(repo, baseFile) {
   const head = snapshotOf(repo);
   return "snapshot" in head ? { code: 0, stdout: reportText(head, base), stderr: "" } : head;
 }
+function isDirectory(path) {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
 function history(args, cwd) {
   const fail = (message, stderr2 = "") => ({ code: 2, stdout: "", stderr: `${stderr2}codeplan: ${message}
 ` });
@@ -4356,7 +4365,7 @@ function history(args, cwd) {
   if (option !== void 0) return fail(`history takes no options, and ${option} was given`);
   if (args.length !== 1) return fail("history takes one records directory");
   const dir = resolve(cwd, args[0]);
-  if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return fail(`records directory not found: ${dir}`);
+  if (!isDirectory(dir)) return fail(`records directory not found: ${dir}`);
   let read;
   try {
     read = readRecords(dir);
@@ -4510,7 +4519,7 @@ ${USAGE}`
   if (partsByName !== void 0 && !/^[0-9]*[1-9][0-9]*$/.test(partsByName)) {
     return usageError(`--parts-by-name needs a whole number of 1 or more, not "${partsByName}"`);
   }
-  if (!statSync(repo, { throwIfNoEntry: false })?.isDirectory()) {
+  if (!isDirectory(repo)) {
     return { code: 2, stdout: "", stderr: `codeplan: repository not found: ${repo}
 ` };
   }
@@ -4544,9 +4553,24 @@ ${USAGE}`
   }
   return checkReport(result2, noPage);
 }
+function main(argv, cwd, env, command = run) {
+  try {
+    return command(argv, cwd());
+  } catch (e) {
+    let text = "";
+    try {
+      text = e instanceof Error && typeof e.message === "string" ? e.message : String(e);
+    } catch {
+    }
+    const stack = env.CODEPLAN_STACK && typeof e?.stack === "string" ? `${e.stack}
+` : "";
+    return { code: 3, stdout: "", stderr: `codeplan: unexpected error: ${text.replace(/[\0-\x1f\x7f\x85\u2028\u2029]/g, " ")}
+${stack}` };
+  }
+}
 
 // src/bin.ts
-var result = run(process.argv.slice(2), process.cwd());
+var result = main(process.argv.slice(2), () => process.cwd(), process.env);
 process.stdout.write(result.stdout);
 process.stderr.write(result.stderr);
 process.exitCode = result.code;
