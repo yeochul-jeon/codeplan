@@ -298,10 +298,10 @@ export function jsFacts(
     const options = isObj(value.compilerOptions) ? value.compilerOptions : {};
     if (typeof options.baseUrl === "string") aliases = { ...aliases, baseUrl: posix.join(dir, options.baseUrl) };
     if (isObj(options.paths)) {
-      const entries = Object.entries(options.paths).map(([key, values]): [string, string[]] => [
-        key,
-        Array.isArray(values) ? values.filter((v): v is string => typeof v === "string") : [],
-      ]);
+      // A key whose value is not an array is no key.
+      const entries = Object.entries(options.paths)
+        .filter(([, values]) => Array.isArray(values))
+        .map(([key, values]): [string, string[]] => [key, (values as unknown[]).filter((v): v is string => typeof v === "string")]);
       aliases = { ...aliases, paths: { entries, dir } };
     }
     return aliases;
@@ -348,7 +348,8 @@ export function jsFacts(
       return fileFor(posix.join(posix.dirname(from), path)) ?? "missing";
     }
     const aliases = configFor(posix.dirname(from));
-    if (aliases === null) return null;
+    // A rooted import path is left, as a package is.
+    if (aliases === null || path.startsWith("/")) return null;
     if (aliases.paths !== undefined) {
       let key: [string, string[]] | undefined = aliases.paths.entries.find(([k]) => !k.includes("*") && k === path);
       let star = "";

@@ -35,9 +35,9 @@ watched too; a part has to own them, or `skip` has to name them.
 `check` reads the imports of the JS and TS files a part owns: `.js`, `.jsx`,
 `.mjs`, `.cjs`, `.ts` and `.tsx` (`.d.ts` too). It does not read the imports
 of `.vue`, `.svelte` and `.astro` files, though an import of one of them
-from another file reaches it. For import paths that do not start with `./`
-or `../`, it uses the `paths` and `baseUrl` of one config: the nearest
-`tsconfig.json` from the file's directory up to the repository root, or a
+from another file reaches it. For import paths other than `.`, `..` and
+those that start with `./`, `../` or `/`, it uses the `paths` and
+`baseUrl` of one config: the nearest `tsconfig.json` from the file's directory up to the repository root, or a
 `jsconfig.json` in a directory that has no `tsconfig.json`. A relative
 `extends` (one config or a list) passes its `paths` and `baseUrl` on; an
 `extends` that is a package name is not read. Configs named in

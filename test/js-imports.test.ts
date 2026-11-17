@@ -2,7 +2,7 @@
 // expressions, the reading of the text as written, resolution with the
 // nearest tsconfig.json or jsconfig.json, three info diagnostics, and the
 // jsImports of snapshot and report.
-import { writeFileSync } from "node:fs";
+import { symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { check, run } from "../src/cli.js";
@@ -48,6 +48,8 @@ function found(repo: string) {
       .filter((d) => d.code === "import-needs-check")
       .map((d) => /files of part "([^"]+)" through (".*?"), found/.exec(d.message)!.slice(1).join(" ")),
     configs: lines.filter((d) => d.at === "plan").map((d) => `${d.code} ${d.message}`),
+    // Every finding, errors and warnings too.
+    all: result.diagnostics.map((d) => `${d.at}: ${d.code}`),
     js: result.jsImports,
   };
 }
@@ -252,6 +254,53 @@ describe("the config of a file", () => {
     expect(judge({ ...tree, "tsconfig.json": TS({ baseUrl: "base" }, { extends: "./cfg/c.json" }), "cfg/c.json": TS({ paths }) }).pairs).toEqual(["base-lib-b-ts"]);
   });
 
+  test("values of another form are no values, with no line", () => {
+    const tree = { "src/x.ts": 'import "@b";\nimport "b";', ...B, "@b.ts": "" };
+    for (const config of [
+      TS({ baseUrl: 1 }),
+      TS({ paths: [] }),
+      TS({ paths: { "@b": [1] } }),
+      JSON.stringify({ compilerOptions: "x" }),
+    ]) {
+      const out = judge({ ...tree, "tsconfig.json": config });
+      expect(out.pairs, config).toEqual([]);
+      expect(out.configs, config).toEqual([]);
+      expect(out.js?.notResolved, config).toBe(config.includes("[1]") ? 1 : 0);
+    }
+    // The string values of a list are used.
+    expect(judge({ ...tree, "tsconfig.json": TS({ paths: { "@b": [1, "lib/b.ts"] } }) }).pairs).toEqual(["lib-b-ts"]);
+    // A key whose value is not a list is no key: baseUrl is used.
+    const notList = judge({ ...tree, "tsconfig.json": TS({ baseUrl: ".", paths: { "@b": "lib/b.ts" } }) });
+    expect(notList.pairs).toEqual(["b-ts"]);
+    expect(notList.js?.notResolved).toBe(0);
+  });
+
+  test("one line for a config with two reasons: the first", () => {
+    const out = judge({ "src/x.ts": "", "tsconfig.json": JSON.stringify({ extends: ["./gone1", "./gone2"] }) });
+    expect(out.configs).toEqual(['tsconfig-not-read tsconfig.json is not read: extends "./gone1" is not a file']);
+  });
+
+  test("an extends that names a directory is not a file; a tsconfig.json that is a link is not there", () => {
+    const dir = judge({ "src/x.ts": "", "base/a.json": "{}", "tsconfig.json": JSON.stringify({ extends: "./base" }) });
+    expect(dir.configs).toEqual(['tsconfig-not-read tsconfig.json is not read: extends "./base" is not a file']);
+    const repo = makeRepo({
+      "package.json": "{}\n",
+      "src/x.ts": 'import "b";',
+      ...B,
+      "tsconfig.json": TS({ baseUrl: "lib" }),
+      "real.json": TS({ baseUrl: "other" }),
+      [PLAN_FILE]: planOf([part("a", ["src/x.ts"]), part("lib-b-ts", ["lib/b.ts"]), part("other-b-ts", ["other/b.ts"])]),
+    });
+    symlinkSync(join(repo, "real.json"), join(repo, "src/tsconfig.json"));
+    expect(found(repo).pairs).toEqual(["lib-b-ts"]);
+  });
+
+  test("an import path that starts with / gives no import pair and is not counted", () => {
+    const out = judge({ "src/x.ts": 'import "/abs";\nimport "/lib/b";', "abs.ts": "", ...B, "tsconfig.json": TS({ baseUrl: ".", paths: { "/*": ["*"] } }) });
+    expect(out.pairs).toEqual([]);
+    expect(out.js?.notResolved).toBe(0);
+  });
+
   test("comments and trailing commas are read", () => {
     expect(parseConfigJson('{ // c\n "a": "//x", /* d */ "b": [1, 2,], }')).toEqual({ a: "//x", b: [1, 2] });
     expect(parseConfigJson('{"a": "\\"/*"}')).toEqual({ a: '"/*' });
@@ -315,10 +364,16 @@ describe("the config of a file", () => {
       },
       { from: "z/x.ts", parts: [part("a", ["z/**"], { uses: [{ to: "zz" }] }), part("b", ["a/**"]), part("c", ["m/**"])] },
     );
-    expect(out.lines.map((l) => l.split(" ").slice(0, 3).join(" "))).toEqual([
-      "plan: tsconfig-not-read a/tsconfig.json",
-      "plan: tsconfig-not-read z/tsconfig.json",
-      "plan: tsconfig-references-not-followed m/tsconfig.json",
+    expect(out.all).toEqual([
+      "plan: tsconfig-not-read",
+      "plan: tsconfig-not-read",
+      "plan: tsconfig-references-not-followed",
+      "parts[0].uses[0].to: unknown-target",
+    ]);
+    expect(out.configs.map((l) => l.split(" ").slice(0, 2).join(" "))).toEqual([
+      "tsconfig-not-read a/tsconfig.json",
+      "tsconfig-not-read z/tsconfig.json",
+      "tsconfig-references-not-followed m/tsconfig.json",
     ]);
   });
 });
@@ -327,11 +382,21 @@ describe("the findings", () => {
   test("import-needs-check comes before import-without-use at one place, each in the order of the parts", () => {
     const out = judge(
       { "src/x.ts": '// import "./c";\nimport "./b";\n// import "./b2";', "src/b.ts": "", "src/b2.ts": "", "src/c.ts": "" },
-      { parts: [part("a", ["src/x.ts"]), part("c", ["src/c.ts"]), part("b", ["src/b.ts", "src/b2.ts"])] },
+      { parts: [part("a", ["src/x.ts"]), part("b", ["src/b.ts", "src/b2.ts"]), part("c", ["src/c.ts"])] },
     );
+    // Part b comes before part c, and the code orders the two lines.
     expect(out.lines).toEqual([
       'parts[0].uses: import-needs-check part "a": src/x.ts may import files of part "c" through "./c", found only when comments and strings are read too, and the plan has no use of it',
       'parts[0].uses: import-without-use part "a": files of this part import files of part "b" and the plan has no use of it, for example src/x.ts',
+    ]);
+    const twoParts = judge(
+      { "src/x.ts": '// import "./c";\nimport "./b";\n// import "./b";\nimport "./d";', "src/b.ts": "", "src/c.ts": "", "src/d.ts": "" },
+      { parts: [part("a", ["src/x.ts"]), part("b", ["src/b.ts"]), part("c", ["src/c.ts"]), part("d", ["src/d.ts"])] },
+    );
+    expect(twoParts.lines.map((l) => `${l.split(" ")[1]} ${/files of part "([^"]+)"/.exec(l)![1]}`)).toEqual([
+      "import-needs-check c",
+      "import-without-use b",
+      "import-without-use d",
     ]);
   });
 
@@ -417,6 +482,28 @@ describe("java and js together", () => {
     expect(noImport.lines).toEqual(['parts[0].uses[0].to: use-without-import part "web": no file of this part imports a file of part "core"']);
   });
 
+  test("a repository without js prints the same snapshot bytes as before JS and TS imports were read", () => {
+    // What snapshot printed for this tree at 33e85d7.
+    const before = "{\"snapshot\":1,\"rules\":1,\"config\":{\"languages\":[\"java\"],\"watch\":null,\"skip\":[],\"roots\":[\"**/src/main/java\",\"**/src/main/kotlin\"],\"tests\":false},\"plan\":\"ok\",\"complete\":true,\"page\":\"missing\",\"parts\":[{\"id\":\"web\",\"paths\":[\"src/main/java/app/web/**\"],\"planned\":false,\"files\":1,\"lines\":4},{\"id\":\"core\",\"paths\":[\"src/main/java/app/core/**\"],\"planned\":false,\"files\":1,\"lines\":2},{\"id\":\"store\",\"paths\":[\"src/main/java/app/store/**\"],\"planned\":false,\"files\":1,\"lines\":2}],\"owned\":[{\"path\":\"src/main/java/app/core/Engine.java\",\"part\":\"core\",\"pattern\":\"src/main/java/app/core/**\"},{\"path\":\"src/main/java/app/store/Repo.java\",\"part\":\"store\",\"pattern\":\"src/main/java/app/store/**\"},{\"path\":\"src/main/java/app/web/Web.java\",\"part\":\"web\",\"pattern\":\"src/main/java/app/web/**\"}],\"orphans\":[],\"contested\":[],\"unwatched\":[],\"tasks\":[],\"diagnostics\":[{\"at\":\"parts[0].uses\",\"code\":\"import-without-use\",\"severity\":\"info\",\"message\":\"part \\\"web\\\": files of this part import files of part \\\"core\\\" and the plan has no use of it, for example src/main/java/app/web/Web.java\",\"fix\":\"add a use of that part to this part's uses; nothing has to change if the plan is not to show that use\"},{\"at\":\"parts[1].uses[0].to\",\"code\":\"use-without-import\",\"severity\":\"info\",\"message\":\"part \\\"core\\\": no file of this part imports a file of part \\\"store\\\"\",\"fix\":\"nothing has to change if the part uses the other without an import line; remove the use if it is no longer there\"}]}";
+    const repo = makeRepo({
+      "pom.xml": "<project/>\n",
+      "src/main/java/app/web/Web.java": "package app.web;\nimport app.core.Engine;\nimport app.store.*;\nclass Web {}\n",
+      "src/main/java/app/core/Engine.java": "package app.core;\nclass Engine {}\n",
+      "src/main/java/app/store/Repo.java": "package app.store;\nclass Repo {}\n",
+      [PLAN_FILE]: JSON.stringify({
+        format: 1,
+        name: "j",
+        about: "",
+        parts: [
+          part("web", ["src/main/java/app/web/**"], { uses: [{ to: "store" }] }),
+          part("core", ["src/main/java/app/core/**"], { uses: [{ to: "store" }] }),
+          part("store", ["src/main/java/app/store/**"]),
+        ],
+      }),
+    });
+    expect(run(["snapshot"], repo).stdout).toBe(`${JSON.stringify(JSON.parse(before), null, 2)}\n`);
+  });
+
   test("a repository without js prints the snapshot it printed before: no jsImports key", () => {
     const repo = makeRepo({ ...tree(), [PLAN_FILE]: planOf(parts()), "codeplan.json": JSON.stringify({ ...config, languages: ["java"] }) });
     const keys = Object.keys(JSON.parse(run(["snapshot"], repo).stdout));
@@ -433,9 +520,11 @@ describe("snapshot and report", () => {
     expect(s.jsImports).toEqual({ files: 2, notResolved: 1, toCheck: 1 });
   });
 
-  test("no plan file: no file is read", () => {
+  test("no plan file, or a plan that is not an object: no file is read", () => {
     const s = JSON.parse(run(["snapshot"], makeRepo({ "package.json": "{}\n", "src/x.ts": "" })).stdout);
     expect(s.jsImports).toEqual({ files: 0, notResolved: 0, toCheck: 0 });
+    const list = JSON.parse(run(["snapshot"], makeRepo({ "package.json": "{}\n", "src/x.ts": "", [PLAN_FILE]: "[]" })).stdout);
+    expect(list.jsImports).toEqual({ files: 0, notResolved: 0, toCheck: 0 });
   });
 
   const baseWith = (repo: string, change: (s: Item) => void) => {

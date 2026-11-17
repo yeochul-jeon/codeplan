@@ -574,10 +574,7 @@ function jsFacts(repo, owners, texts, isFile) {
     const options = isObj(value.compilerOptions) ? value.compilerOptions : {};
     if (typeof options.baseUrl === "string") aliases = { ...aliases, baseUrl: posix.join(dir, options.baseUrl) };
     if (isObj(options.paths)) {
-      const entries = Object.entries(options.paths).map(([key, values]) => [
-        key,
-        Array.isArray(values) ? values.filter((v) => typeof v === "string") : []
-      ]);
+      const entries = Object.entries(options.paths).filter(([, values]) => Array.isArray(values)).map(([key, values]) => [key, values.filter((v) => typeof v === "string")]);
       aliases = { ...aliases, paths: { entries, dir } };
     }
     return aliases;
@@ -611,7 +608,7 @@ function jsFacts(repo, owners, texts, isFile) {
       return fileFor(posix.join(posix.dirname(from), path)) ?? "missing";
     }
     const aliases = configFor(posix.dirname(from));
-    if (aliases === null) return null;
+    if (aliases === null || path.startsWith("/")) return null;
     if (aliases.paths !== void 0) {
       let key = aliases.paths.entries.find(([k]) => !k.includes("*") && k === path);
       let star = "";

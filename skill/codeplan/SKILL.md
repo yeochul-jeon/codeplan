@@ -123,8 +123,10 @@ import pairs of `.java` files and of JS and TS files (`import-without-use`
 info lines, each with one example file), `import-needs-check` info lines
 (an import that shows only when comments and strings are read too; look
 at the file) and the other findings. `snapshot` gives, for each file, the
-pattern that owns it, and how many JS and TS files were read and how many
-import paths gave no file. `summary` gives the plan's text with the counts.
+pattern that owns it; it also gives how many JS and TS files were read,
+how many import paths gave no file (counting only `.`, `..`, paths that
+start with `./` or `../`, and paths that match a `paths` key), and how many
+`import-needs-check` lines there are. `summary` gives the plan's text with the counts.
 The tool does not count how many files import a given file, or entry
 points. Count those with a search command, and in
 your report to the person say that they were counted by hand and with which

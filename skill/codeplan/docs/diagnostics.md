@@ -97,9 +97,10 @@ What `check` does not read or look at for evidence and `.java` files:
 ## JS and TS imports
 
 - The imports are read in JS and TS files that one part owns: files ending
-  in `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts` or `.tsx` (`.d.ts` included). The
-  import codes for them are reported only when the config has the `js`
-  language, every part is counted and no file is contested.
+  in `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts` or `.tsx` (`.d.ts` included).
+  `import-without-use` and `import-needs-check` for them are reported only
+  when the config has the `js` language, every part is counted and no file
+  is contested.
 - `check` reads each file once with comments, the text of strings and
   templates, and regular expression literals blanked out, and finds the
   import paths in what is left: `import … from "x"`, `export … from "x"`
@@ -109,10 +110,12 @@ What `check` does not read or look at for evidence and `.java` files:
 - The same search on the file as written finds the import paths that show
   only when comments and strings are read too. When one of them reaches a
   file of another part, the line is `import-needs-check`. It can be an
-  import that the blanking missed, or one that is commented out.
-- An import path that starts with `./` or `../` is a path from the file's
-  directory, and nothing else. Other import paths go through the `paths` of
-  the config, then its `baseUrl`; anything else is a package and is left.
+  import that was blanked out by mistake, or one that is commented out.
+- An import path that is `.` or `..`, or starts with `./` or `../`, is a
+  path from the file's directory, and nothing else. An import path that
+  starts with `/` is left. Other import paths go through the `paths` of the
+  config, then its `baseUrl`; anything else is a package and is left. A
+  `paths` key whose value is not a list is no key.
   When a `paths` key matches and none of its values gives a file, `baseUrl`
   is not tried.
 - For each path the first regular file of these is taken: for `.js`, the
@@ -122,8 +125,8 @@ What `check` does not read or look at for evidence and `.java` files:
 - The file found must be one that one part owns. A file outside the watch
   set, skipped, a test, an orphan, or a file such as `.css` or `.json`
   gives no import pair, and is not counted as not resolved.
-- An import path that starts with `./` or `../`, or matches a `paths` key,
-  and gives no file is counted as not resolved: once for each file and
+- An import path that is `.` or `..`, starts with `./` or `../`, or
+  matches a `paths` key, and gives no file is counted as not resolved: once for each file and
   import path. `snapshot` and `report` show the count; `check` prints no
   line for it.
 - The config is the nearest `tsconfig.json` from the file's directory up to
