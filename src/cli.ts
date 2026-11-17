@@ -6,6 +6,7 @@ import { SettingsError, readConfig, type Config } from "./config.js";
 import { DraftError, draft } from "./draft.js";
 import { historyHtml, readRecords } from "./history.js";
 import { importFacts } from "./imports.js";
+import { jsFacts } from "./jsimports.js";
 import { lineTotal } from "./lines.js";
 import { isPlainFile, measure, unownedTest, type Measurement } from "./measure.js";
 import { planPath, readPlanFile, type PlanPart } from "./plan.js";
@@ -37,6 +38,9 @@ export type CheckResult =
       tasks: PlanTask[];
       // Parts left out of measurement; when any, orphans are not listed.
       excluded: number;
+      // The JS and TS files read and the import paths not resolved, or null
+      // when JS and TS imports are not judged.
+      jsImports: { files: number; notResolved: number } | null;
       // The page as update would write it now, or null when update would
       // not write (no plan, an error diagnostic, a contested file).
       page: { path: string; bytes: Buffer | null; current: boolean; state: PageState };
@@ -172,7 +176,9 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
     const plan = planPath(config.home);
     const measurement = measure(repo, config, []);
     const diagnostics = [diagnostic("no-plan", "plan", `${plan} not found, so every watched file is an orphan`)];
-    return { kind: "measured", config, plan: null, measured: [], measurement, diagnostics, tasks: [], excluded: 0, page: notCompared };
+    // No part owns a file, so no JS or TS file is read.
+    const jsImports = config.languages.includes("js") ? { files: 0, notResolved: 0 } : null;
+    return { kind: "measured", config, plan: null, measured: [], measurement, diagnostics, tasks: [], excluded: 0, jsImports, page: notCompared };
   }
   const prepared = preparePlan(file.value);
   const measurement = measure(repo, config, prepared.parts);
@@ -180,6 +186,8 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
   const tasks = planTasks(prepared, isFile);
   // The line counts of evidence files that are not measured, each read once.
   const otherLines = new Map<string, number | null>();
+  const judged = prepared.excluded === 0 && measurement.contested.length === 0;
+  const js = judged && config.languages.includes("js") ? jsFacts(repo, measurement.owners, measurement.js, isFile) : null;
   const diagnostics = diagnosePlan(prepared, {
     repo,
     isFile,
@@ -202,9 +210,8 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
       return otherLines.get(path)!;
     },
     imports:
-      config.languages.includes("java") && prepared.excluded === 0 && measurement.contested.length === 0
-        ? importFacts(measurement.owners, measurement.java)
-        : null,
+      judged && config.languages.includes("java") ? importFacts(measurement.owners, measurement.java) : null,
+    js,
   });
   const result = {
     kind: "measured" as const,
@@ -215,6 +222,7 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
     diagnostics,
     tasks,
     excluded: prepared.excluded,
+    jsImports: js === null ? null : { files: js.files, notResolved: js.notResolved },
   };
   if (
     page === "skip" ||
@@ -376,6 +384,12 @@ const FIXES: Record<string, string> = {
     "add a use of that part to this part's uses; nothing has to change if the plan is not to show that use",
   "use-without-import":
     "nothing has to change if the part uses the other without an import line; remove the use if it is no longer there",
+  "import-needs-check":
+    "look at the import path in the file: add a use of that part if the code uses it; nothing has to change if the import is commented out or is only text",
+  "tsconfig-not-read":
+    "make the config valid JSON (comments and trailing commas are allowed), or correct the path in extends",
+  "tsconfig-references-not-followed":
+    "nothing has to change if no import path uses an alias of the referenced configs; otherwise write those paths or baseUrl in this config too",
 };
 
 const fixFor = (code: string, plan: string): string =>
@@ -403,6 +417,7 @@ function snapshotOf(repo: string): Snapshot | RunResult {
     diagnostics: result.diagnostics,
     tasks: result.tasks,
     excluded: result.excluded,
+    jsImports: result.jsImports,
     pageState: result.page.state,
     fix: (code) => fixFor(code, plan),
   });

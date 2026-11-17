@@ -77,7 +77,7 @@ describe("examples in the docs", () => {
         const value = JSON.parse(m[1]!) as Record<string, unknown>;
         if (value && typeof value === "object" && "format" in value && "parts" in value) {
           plans++;
-          const errors = diagnosePlan(preparePlan(value), { repo: root, files: new Map(), owners: new Map(), lineCount: () => 1, imports: null, isFile: () => false, unowned: () => false }).filter(
+          const errors = diagnosePlan(preparePlan(value), { repo: root, files: new Map(), owners: new Map(), lineCount: () => 1, imports: null, js: null, isFile: () => false, unowned: () => false }).filter(
             (d) => d.severity === "error",
           );
           expect(errors, file).toEqual([]);
@@ -205,7 +205,7 @@ describe("examples in the docs", () => {
       encoding: "utf8",
       env: { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` },
     });
-    expect(out.stdout).toBe("## codeplan\n\ncheck: ok\n\n### Tasks\n\n| Task | Status | Files |\n|---|---|---|\n| refunds | doing | 1 of 1 |\n| basket-total | done | 1 of 1 |\n");
+    expect(out.stdout).toBe("## codeplan\n\ncheck: ok\n\n### Tasks\n\n| Task | Status | Files |\n|---|---|---|\n| refunds | doing | 1 of 1 |\n| basket-total | done | 1 of 1 |\n\n### JS and TS imports\n\n4 files read, 0 import paths not resolved, 0 imports to check.\n");
   });
 
   test("the snapshot fields in the CI doc are the fields snapshot prints", () => {

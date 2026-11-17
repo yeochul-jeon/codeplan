@@ -63,7 +63,11 @@ const printed = (out: RunResult): string => {
   return out.stdout;
 };
 
-const OK = "## codeplan\n\ncheck: ok\n";
+// The JS and TS imports paragraph; `base` is what the base snapshot counted.
+const imports = (files: number, base?: string) =>
+  `### JS and TS imports\n\n${files} files read, 0 import paths not resolved, 0 imports to check.${base === undefined ? "" : ` In the base: ${base}.`}\n`;
+const okWith = (files: number, base?: string) => `## codeplan\n\ncheck: ok\n\n${imports(files, base)}`;
+const OK = okWith(3);
 
 describe("snapshot", () => {
   test("prints the config, the parts, each file's owner and the problem lists as JSON", () => {
@@ -81,6 +85,7 @@ describe("snapshot", () => {
         { id: "shop", paths: ["src/shop/**"], planned: false, files: 2, lines: 5 },
         { id: "auth", paths: ["src/auth/**"], planned: false, files: 1, lines: 4 },
       ],
+      jsImports: { files: 3, notResolved: 0, toCheck: 0 },
       owned: [
         { path: "src/auth/login.ts", part: "auth", pattern: "src/auth/**" },
         { path: "src/shop/cart.ts", part: "shop", pattern: "src/shop/**" },
@@ -150,7 +155,7 @@ describe("report", () => {
 
   test("lists the files in no part", () => {
     expect(printed(report(repoWith(P(), { "src/misc/x_y.ts": lines(1) })))).toBe(
-      "## codeplan\n\ncheck: fails (1 orphan files)\n\n### Files in no part\n\n- src/misc/x\\_y.ts\n",
+      `## codeplan\n\ncheck: fails (1 orphan files)\n\n### Files in no part\n\n- src/misc/x\\_y.ts\n\n${imports(3)}`,
     );
   });
 
@@ -162,7 +167,7 @@ describe("report", () => {
       "src/newpkg/a.ts": lines(1),
       "src/newpkg/b.ts": lines(1),
     });
-    expect(printed(report(head, base))).toBe(`${OK}
+    expect(printed(report(head, base))).toBe(`${okWith(6, "3, 0, 0")}
 ### Changes
 
 | Part | Files | Lines | Change |
@@ -179,14 +184,14 @@ describe("report", () => {
   test("a base without a plan file has nothing to compare", () => {
     const base = baseFile(repoWith(null));
     expect(printed(report(repoWith(P()), base))).toBe(
-      `${OK}\n### Changes\n\nNo plan in the base, so there is nothing to compare.\n`,
+      `${okWith(3, "0, 0, 0")}\n### Changes\n\nNo plan in the base, so there is nothing to compare.\n`,
     );
   });
 
   test("a changed id is one new part and one removed part", () => {
     const base = baseFile(repoWith(P()));
     const head = repoWith(planOf(part("shop", ["src/shop/**"]), part("login", ["src/auth/**"])));
-    expect(printed(report(head, base))).toBe(`${OK}
+    expect(printed(report(head, base))).toBe(`${okWith(3, "3, 0, 0")}
 ### Changes
 
 | Part | Files | Lines | Change |
@@ -199,7 +204,7 @@ describe("report", () => {
   test("a changed pattern is said, and no directory note follows", () => {
     const base = baseFile(repoWith(P()));
     const head = repoWith(planOf(part("shop", ["src/shop/*.ts"]), part("auth", ["src/auth/**"])));
-    expect(printed(report(head, base))).toBe(`${OK}
+    expect(printed(report(head, base))).toBe(`${okWith(3, "3, 0, 0")}
 ### Changes
 
 No part changed.
@@ -221,7 +226,7 @@ The config or part patterns changed, so some changes come from new rules, not ne
       value.config = { ...Object.fromEntries(Object.entries(value.config).reverse()), extra: 1 };
       return JSON.stringify(value);
     });
-    expect(printed(report(repo, base))).toBe(`${OK}\n### Changes\n\nNo part changed.\n`);
+    expect(printed(report(repo, base))).toBe(`${okWith(3, "3, 0, 0")}\n### Changes\n\nNo part changed.\n`);
   });
 
   test("a planned part that got code is marked, and its own narrow pattern gives no directory note", () => {
@@ -236,6 +241,7 @@ check: fails (1 warnings)
 
 - parts\\[2\\].planned: planned-has-files [warning] part "refund": the part is planned, but 1 watched files are measured in it
 
+${imports(4, "3, 0, 0")}
 ### Changes
 
 | Part | Files | Lines | Change |
@@ -302,6 +308,10 @@ Measurement is incomplete in the head, so changes are not shown.
       ...Array.from({ length: 30 }, (_, i) => `- ${name(i + 1)}`),
       "- and 5 more",
       "",
+      "### JS and TS imports",
+      "",
+      "3 files read, 0 import paths not resolved, 0 imports to check.",
+      "",
     ]);
   });
 
@@ -340,11 +350,11 @@ check: fails (1 warnings, 2 contested files, 1 unwatched files)
     expect(noPlan[2]).toBe("check: fails (1 warnings, 3 orphan files)");
     expect(noPlan).toContain("### Findings");
     const foreign = makeRepo({ ...K, [PLAN_FILE]: JSON.stringify(P()), "docs/codeplan/codeplan.html": "x" });
-    expect(printed(report(foreign))).toBe("## codeplan\n\ncheck: fails (foreign page)\n");
+    expect(printed(report(foreign))).toBe(`## codeplan\n\ncheck: fails (foreign page)\n\n${imports(3)}`);
     const missing = makeRepo({ ...K, [PLAN_FILE]: JSON.stringify(P()) });
-    expect(printed(report(missing))).toBe("## codeplan\n\ncheck: fails (page missing)\n");
+    expect(printed(report(missing))).toBe(`## codeplan\n\ncheck: fails (page missing)\n\n${imports(3)}`);
     writeFileSync(join(missing, "docs/codeplan/codeplan.html"), "<!doctype html><!-- codeplan page -->\nold");
-    expect(printed(report(missing))).toBe("## codeplan\n\ncheck: fails (page outdated)\n");
+    expect(printed(report(missing))).toBe(`## codeplan\n\ncheck: fails (page outdated)\n\n${imports(3)}`);
   });
 
   test("directory notes leave out root files, directories the base had files in, and new parts", () => {

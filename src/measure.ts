@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { LANGUAGES, isUnder, type Config } from "./config.js";
 import { GlobSet, compileGlob, strength } from "./glob.js";
 import { javaFile, type JavaFile } from "./imports.js";
+import { isJsRead } from "./jsimports.js";
 import { lineTotal } from "./lines.js";
 import type { PlanPart } from "./plan.js";
 
@@ -33,6 +34,9 @@ export interface Measurement {
   lines: Map<string, number>;
   // What each .java file measured in a part says of its package and imports.
   java: Map<string, JavaFile>;
+  // The text of each JS and TS file measured in a part whose imports are
+  // read (see isJsRead).
+  js: Map<string, string>;
 }
 
 export const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -211,6 +215,7 @@ export function measure(repo: string, config: Config, plan: PlanPart[]): Measure
   const wonBy = new Map<string, string>();
   const lines = new Map<string, number>();
   const java = new Map<string, JavaFile>();
+  const js = new Map<string, string>();
   let watchedFiles = 0;
 
   for (const path of files) {
@@ -246,6 +251,7 @@ export function measure(repo: string, config: Config, plan: PlanPart[]): Measure
     lines.set(path, lineTotal(bytes));
     total.lines += lines.get(path)!;
     if (path.endsWith(".java")) java.set(path, javaFile(bytes.toString("utf8")));
+    if (isJsRead(path) && ids.length === 1) js.set(path, bytes.toString("utf8"));
   }
 
   return {
@@ -258,5 +264,6 @@ export function measure(repo: string, config: Config, plan: PlanPart[]): Measure
     wonBy,
     lines,
     java,
+    js,
   };
 }

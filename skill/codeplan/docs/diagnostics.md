@@ -46,12 +46,15 @@ last line of `check`, and with nothing else to report that line is
 | `evidence-not-read` | info | `uses[i].evidence[j]` | The string is not written as `file:line`: a path from the repository root with `/` between its parts, a colon, and a line number of 1 or more. | Write it as `file:line`. |
 | `evidence-no-file` | info | `uses[i].evidence[j]` | No file can be read at that path (nothing there, a directory, a symbolic link). The file does not have to be in the watch set. | Write the path of a file that is in the repository, or remove the evidence. |
 | `evidence-no-line` | info | `uses[i].evidence[j]` | The file has fewer lines than the line number. | Write the line that shows the use as the file is now, or remove the evidence. |
-| `import-without-use` | info | `parts[i].uses` | A `.java` file of this part imports a `.java` file of another part, and this part has no use of that part. One line for each such part; the message names one file as an example. | Add a use of that part. Nothing has to change if the plan is not to show that use. |
-| `use-without-import` | info | `uses[i].to` | The use names a part, both parts have `.java` files, and no file of this part imports a file of that part. | Nothing has to change if the part uses the other without an import line. Remove the use if it is no longer there. |
+| `import-without-use` | info | `parts[i].uses` | A `.java` file of this part imports a `.java` file of another part, or a JS or TS file of this part imports a file of another part, and this part has no use of that part. One line for each such part; the message names one file as an example, the first by path of both kinds. | Add a use of that part. Nothing has to change if the plan is not to show that use. |
+| `use-without-import` | info | `uses[i].to` | The use names a part, both parts have `.java` files, and no file of this part imports a file of that part. Only for `.java` files: JS and TS code often uses other code with no import (globals, injection, paths in strings). | Nothing has to change if the part uses the other without an import line. Remove the use if it is no longer there. |
+| `import-needs-check` | info | `parts[i].uses` | An import path of a JS or TS file of this part reaches a file of another part, but only when comments and strings are read too; the two parts are not an import pair and this part has no use of that part. The message names the first such file and its first such import path. | Look at the import in the file. Add a use of that part if the code uses it; nothing has to change if the import is commented out or is only text. |
+| `tsconfig-not-read` | info | `plan` | A `tsconfig.json` or `jsconfig.json` that a JS or TS file reads its aliases from, or a config it extends, is not JSON, or a relative `extends` names no file. | Make the config valid JSON (comments and trailing commas are allowed), or correct the path in `extends`. |
+| `tsconfig-references-not-followed` | info | `plan` | That config has `references`, and no `paths` or `baseUrl` of its own or from its `extends`. | Nothing has to change if no import path uses an alias of the referenced configs; otherwise write those `paths` or `baseUrl` in this config too. |
 
 ## Evidence and imports
 
-The five codes above are info lines: they do not change an exit code.
+The eight codes above are info lines: they do not change an exit code.
 
 - For each `evidence` string, `check` reports the first of the three
   evidence codes that holds, and nothing when none does.
@@ -65,29 +68,103 @@ The five codes above are info lines: they do not change an exit code.
   has neither.
 - `use-without-import` is not reported when the two parts have files in one
   package, or when this part has a `.*` import of a package that has files
-  of the other part.
+  of the other part, or when they are an import pair through JS and TS
+  files.
 
-What `check` does not read or look at here:
+What `check` does not read or look at for evidence and `.java` files:
 
 - It does not read the line of an evidence: an evidence whose line has
   moved to other code is not found.
-- It does not read the imports of `.kt`, JavaScript and TypeScript files.
+- It does not read the imports of `.kt` files.
 - It does not look for a use between files of one package, where no import
   is written.
 - It does not look for a type written with its full name and no import, or
   for a use that finds its target by name.
 - It does not look at which types of a `.*` import are used.
-- It does not read a second import on one line, an import written over
-  several lines, or `import module`.
+- In `.java` files, it does not read a second import on one line, an
+  import written over several lines, or `import module`.
 - It does not look for a type declared under a name other than its file
   name.
-- It does not look whether a line that begins with `package` or `import` is
-  inside a comment or a string: such a line is read as an import.
+- In `.java` files, it does not look whether a line that begins with
+  `package` or `import` is inside a comment or a string: such a line is
+  read as an import.
 - It does not look for the file of a type whose full name two or more
   files have.
 - It does not look whether the file of an evidence uses the target of the
   use: only whether the file is there and how many lines it has.
 - It does not read `about` texts.
+
+## JS and TS imports
+
+- The imports are read in JS and TS files that one part owns: files ending
+  in `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts` or `.tsx` (`.d.ts` included). The
+  import codes for them are reported only when the config has the `js`
+  language, every part is counted and no file is contested.
+- `check` reads each file once with comments, the text of strings and
+  templates, and regular expression literals blanked out, and finds the
+  import paths in what is left: `import … from "x"`, `export … from "x"`
+  (over several lines too), `import "x"`, `import("x")`, `require("x")`
+  in `.js`, `.jsx`, `.mjs` and `.cjs` files, and `import x = require("x")`.
+  A type-only import counts as a use.
+- The same search on the file as written finds the import paths that show
+  only when comments and strings are read too. When one of them reaches a
+  file of another part, the line is `import-needs-check`. It can be an
+  import that the blanking missed, or one that is commented out.
+- An import path that starts with `./` or `../` is a path from the file's
+  directory, and nothing else. Other import paths go through the `paths` of
+  the config, then its `baseUrl`; anything else is a package and is left.
+  When a `paths` key matches and none of its values gives a file, `baseUrl`
+  is not tried.
+- For each path the first regular file of these is taken: for `.js`, the
+  same name with `.ts`, `.tsx`, `.d.ts` (for `.jsx`, `.tsx`, `.d.ts`); the
+  path itself; the path with `.ts`, `.tsx`, `.d.ts`, `.js` or `.jsx` added;
+  `index` with those endings in the directory of that path.
+- The file found must be one that one part owns. A file outside the watch
+  set, skipped, a test, an orphan, or a file such as `.css` or `.json`
+  gives no import pair, and is not counted as not resolved.
+- An import path that starts with `./` or `../`, or matches a `paths` key,
+  and gives no file is counted as not resolved: once for each file and
+  import path. `snapshot` and `report` show the count; `check` prints no
+  line for it.
+- The config is the nearest `tsconfig.json` from the file's directory up to
+  the repository root, or a `jsconfig.json` in a directory with no
+  `tsconfig.json`. See [languages](languages.md).
+
+What `check` does not read or look at in JS and TS files:
+
+- It does not read imports written with a workspace package name, the
+  `exports` and `imports` of `package.json` (`#` import paths), or the
+  aliases in a bundler config (Vite, webpack and others).
+- It does not read a config named in an `extends` that is a package name;
+  such a config uses only its own values, with no line.
+- It does not read the configs that `references` names.
+- It does not read `moduleSuffixes` or files with a platform suffix.
+- It does not read the imports of `.vue`, `.svelte` and `.astro` files.
+  Another file's import of one of them still reaches it.
+- It does not read `.mts` and `.cts` files, which the `js` rules do not
+  count.
+- It does not read an `import(…)` or `require(…)` whose first argument is
+  not one string, or an `import("x")` type in a JSDoc comment of a JS file.
+- It does not read the `types` or `main` of a directory's `package.json`:
+  a directory is read through its `index` file only.
+- It does not read `rootDirs`, `moduleResolution` or the special handling
+  of an ending written in a `paths` value. In a Node16 or NodeNext ES
+  module file, a relative import with no ending is read, where TypeScript
+  stops with an error.
+- It does not tell a `/` after `)` that starts a regular expression from a
+  division. When a template that holds text like an import comes later, the
+  import path is found in both readings and makes an import pair with no
+  `import-needs-check` line.
+- It does not tell text like an import inside JSX text
+  (`<p>import x from './b'</p>`) from code: it makes an import pair.
+- It does not tell a `require` function defined in the file from the
+  built-in one: its calls in JS files make import pairs.
+- It does not read an import name with letters outside ASCII
+  (`import { x as café }`) or a string import name
+  (`import { "a-b" as x }`): such an import is missed.
+- It does not undo escapes in an import path, and an import path that
+  holds the other quote mark is cut there: such an import is missed or
+  reaches another file.
 
 ## Order
 
@@ -98,7 +175,9 @@ inside an object, its fields in the order of [plan file](plan-file.md), then
 `note`, then unknown keys by name. Array elements go by index. A finding on
 an item (such as `externals[3]`) comes before those on its fields, and a
 finding on an array (such as `scenarios[0].steps`) before those on its
-elements. Findings at the same place go by code name.
+elements. Findings at the same place go by code name. The config findings
+(`tsconfig-not-read`, `tsconfig-references-not-followed`) come before all
+others, by code name and then by the config's path.
 
 ## Broken items do not cause more findings
 

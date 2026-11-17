@@ -119,11 +119,14 @@ What the tool counts, quote with the command that gave it, and do not count
 it again by hand. `draft` gives the parts with their `paths`, `measure`
 (files and lines for each part and in total), `notes`, and for java
 `modules` and `mappers`. `check` gives files and lines for each part, the
-import pairs of `.java` files (`import-without-use` info lines, each with
-one example file) and the other findings. `snapshot` gives, for each file,
-the pattern that owns it. `summary` gives the plan's text with the counts.
-The tool does not count how many files import a given file, the imports of
-JS and TS files, or entry points. Count those with a search command, and in
+import pairs of `.java` files and of JS and TS files (`import-without-use`
+info lines, each with one example file), `import-needs-check` info lines
+(an import that shows only when comments and strings are read too; look
+at the file) and the other findings. `snapshot` gives, for each file, the
+pattern that owns it, and how many JS and TS files were read and how many
+import paths gave no file. `summary` gives the plan's text with the counts.
+The tool does not count how many files import a given file, or entry
+points. Count those with a search command, and in
 your report to the person say that they were counted by hand and with which
 command. Do not put such numbers in `about`, `does` or `note`.
 
@@ -176,9 +179,10 @@ each:
 Write a use only when the code shows it: an import, a call, a client, a
 query. Put the place in `evidence`. A relation you cannot find in the code
 does not go into the plan; ask the person instead. The plan does not have to
-list every use for `check` to pass. In `.java` files, when a file of one part
-imports a file of another part and the plan has no use of it, `check` says
-so in an info line, and an info line alone does not make `check` fail. Two
+list every use for `check` to pass. In `.java` files and in JS and TS files,
+when a file of one part imports a file of another part and the plan has no
+use of it, `check` says so in an info line, and an info line alone does not
+make `check` fail. Two
 steps in a row of a scenario at different places do want a use between
 them, though; without one `check` warns with `gap-in-scenario`, and writing
 the use (when the code shows it) removes the warning.

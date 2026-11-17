@@ -696,6 +696,10 @@ describe("tasks in the report", () => {
         "| login-limit | done | 1 of 1 |",
         "| receipts | todo |  |",
         "",
+        "### JS and TS imports",
+        "",
+        "3 files read, 0 import paths not resolved, 0 imports to check.",
+        "",
       ].join("\n"),
     );
   });
@@ -712,7 +716,7 @@ describe("tasks in the report", () => {
       "report",
     );
     expect(text).toContain("check: ok");
-    expect(text.endsWith("| t30 | todo |  |\n\nAnd 1 more rows.\n")).toBe(true);
+    expect(text.endsWith("| t30 | todo |  |\n\nAnd 1 more rows.\n\n### JS and TS imports\n\n3 files read, 0 import paths not resolved, 0 imports to check.\n")).toBe(true);
     expect(text).not.toContain("t31");
     expect(text.match(/^\| t\d\d /gm)).toHaveLength(30);
   });
@@ -724,7 +728,7 @@ describe("tasks in the report", () => {
     });
     const text = out0(updated(head, GIVE), "report", "--base", baseFile());
     expect(text).toContain("\ncheck: fails (1 warnings)\n");
-    expect(text).toContain("| refund-flow | done | 2 of 2 |\n| login-limit | done | 1 of 1 |\n| audit | todo |  |\n\n### Changes");
+    expect(text).toContain("| refund-flow | done | 2 of 2 |\n| login-limit | done | 1 of 1 |\n| audit | todo |  |\n\n### JS and TS imports\n\n4 files read, 0 import paths not resolved, 0 imports to check. In the base: 3, 0, 0.\n\n### Changes");
     expect(changes(text)).toBe(
       [
         "### Changes",

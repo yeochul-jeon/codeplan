@@ -5,6 +5,7 @@ import { lstatSync } from "node:fs";
 import { join } from "node:path";
 import { isPathForm } from "./config.js";
 import type { ImportFacts } from "./imports.js";
+import type { JsFacts } from "./jsimports.js";
 import { byCodeUnit } from "./measure.js";
 import type { PlanPart } from "./plan.js";
 
@@ -41,6 +42,9 @@ export const SEVERITY: Record<string, Severity> = {
   "evidence-no-line": "info",
   "import-without-use": "info",
   "use-without-import": "info",
+  "import-needs-check": "info",
+  "tsconfig-not-read": "info",
+  "tsconfig-references-not-followed": "info",
 };
 
 export function diagnostic(code: string, at: string, message: string): Diagnostic {
@@ -221,6 +225,9 @@ export interface MeasuredFacts {
   // What the .java files import; null when imports are not judged (no java
   // rules, a part that is not measured, or a contested file).
   imports: ImportFacts | null;
+  // What the JS and TS files import; null when they are not judged (no js
+  // rules, a part that is not measured, or a contested file).
+  js: JsFacts | null;
 }
 
 // What is to say of an evidence string: the first of the three that holds.
@@ -249,6 +256,13 @@ export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diag
   const measured = new Set(prepared.parts.map((p) => p.id));
   const plannedIds = new Set(prepared.parts.filter((p) => p.planned).map((p) => p.id));
   const imports = facts.imports;
+  const js = facts.js;
+  // An import pair of the .java files or of the JS and TS files, with the
+  // first file of the two that shows it.
+  const pairExample = (a: string, b: string): string | undefined => {
+    const found = [imports?.pairs.get(a)?.get(b), js?.pairs.get(a)?.get(b)].filter((p) => p !== undefined);
+    return found.sort(byCodeUnit)[0];
+  };
   const sharePackage = (a: string, b: string) => [...imports!.packages.get(a)!].some((p) => imports!.packages.get(b)!.has(p));
 
   // Field helpers. `who` names the enclosing item in messages.
@@ -293,6 +307,9 @@ export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diag
     }
     return validId(obj.id) ? `${kind} "${obj.id}": ` : "";
   };
+
+  // Config findings come first; their place is the plan as a whole.
+  for (const finding of js?.configs ?? []) emit(finding.code, "plan", finding.message);
 
   // ---- top level ----
   if (raw.format !== 1) emit("bad-shape", "format", "`format` must be 1");
@@ -450,11 +467,21 @@ export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diag
     // A use that the imports show and the plan does not have. Its place is
     // `uses` also when the part has no such key.
     const uses = "uses" in part ? part.uses : [];
-    if (imports !== null && partId !== null && !repeated && !planned && Array.isArray(uses)) {
+    if ((imports !== null || js !== null) && partId !== null && !repeated && !planned && Array.isArray(uses)) {
       const named = new Set(uses.map((use) => (isObj(use) ? use.to : undefined)));
       for (const other of prepared.parts) {
-        const example = imports.pairs.get(partId)?.get(other.id);
-        if (example === undefined || other.planned || named.has(other.id)) continue;
+        if (other.planned || named.has(other.id)) continue;
+        const example = pairExample(partId, other.id);
+        // An import that only shows when comments and strings are read too.
+        const written = js?.onlyWritten.get(partId)?.get(other.id);
+        if (example === undefined && written !== undefined) {
+          emit(
+            "import-needs-check",
+            `${at}.uses`,
+            `${who}${written.file} may import files of part "${other.id}" through ${JSON.stringify(written.path)}, found only when comments and strings are read too, and the plan has no use of it`,
+          );
+        }
+        if (example === undefined) continue;
         emit(
           "import-without-use",
           `${at}.uses`,
@@ -496,7 +523,7 @@ export function diagnosePlan(prepared: PreparedPlan, facts: MeasuredFacts): Diag
               imports.packages.has(partId) &&
               imports.packages.has(to) &&
               !sharePackage(partId, to) &&
-              !imports.pairs.get(partId)?.has(to) &&
+              pairExample(partId, to) === undefined &&
               !imports.possible.get(partId)?.has(to)
             ) {
               emit("use-without-import", `${uat}.to`, `${who}no file of this part imports a file of part "${to}"`);

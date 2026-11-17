@@ -1,6 +1,6 @@
 // src/cli.ts
-import { closeSync, lstatSync as lstatSync5, mkdirSync, openSync, readFileSync as readFileSync6, renameSync, rmSync, statSync, writeSync } from "node:fs";
-import { basename, dirname, join as join6, resolve } from "node:path";
+import { closeSync, lstatSync as lstatSync5, mkdirSync, openSync, readFileSync as readFileSync7, renameSync, rmSync, statSync, writeSync } from "node:fs";
+import { basename, dirname, join as join7, resolve } from "node:path";
 
 // src/config.ts
 import { existsSync, readFileSync } from "node:fs";
@@ -291,8 +291,8 @@ function readConfig(repo) {
 }
 
 // src/draft.ts
-import { existsSync as existsSync2, lstatSync as lstatSync2, readFileSync as readFileSync3 } from "node:fs";
-import { join as join3 } from "node:path";
+import { existsSync as existsSync2, lstatSync as lstatSync2, readFileSync as readFileSync4 } from "node:fs";
+import { join as join4 } from "node:path";
 
 // src/lines.ts
 function lineTotal(bytes) {
@@ -303,8 +303,8 @@ function lineTotal(bytes) {
 }
 
 // src/measure.ts
-import { lstatSync, readdirSync, readFileSync as readFileSync2 } from "node:fs";
-import { join as join2 } from "node:path";
+import { lstatSync, readdirSync, readFileSync as readFileSync3 } from "node:fs";
+import { join as join3 } from "node:path";
 
 // src/imports.ts
 var PIECE = String.raw`[\p{L}_$][\p{L}\p{N}_$]*`;
@@ -367,22 +367,337 @@ function importFacts(owners, java) {
   return { pairs, possible, packages };
 }
 
-// src/measure.ts
+// src/jsimports.ts
+import { readFileSync as readFileSync2 } from "node:fs";
+import { join as join2, posix } from "node:path";
+var JS_READ = [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"];
+var isJsRead = (path) => JS_READ.some((ext) => path.endsWith(ext));
 var byCodeUnit = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+var isTs = (path) => path.endsWith(".ts") || path.endsWith(".tsx");
+var REGEX_AFTER = /* @__PURE__ */ new Set([
+  ..."(,=:[!&|?{};+-*%<>~^",
+  ..."return typeof case do else in of new delete void throw yield await instanceof".split(" ")
+]);
+var isWordChar = (c) => /[A-Za-z0-9_$]/.test(c);
+var isLineEnd = (c) => c === "\n" || c === "\r";
+var LITERAL = "\0";
+function erased(text) {
+  const out = text.split("");
+  const n = text.length;
+  const blank = (from, to) => {
+    for (let k = from; k < to; k++) if (!isLineEnd(out[k])) out[k] = " ";
+  };
+  let prev = "";
+  let before = "";
+  const push = (token) => {
+    before = prev;
+    prev = token;
+  };
+  const template = (start) => {
+    for (let k = start; k < n; k++) {
+      const c = text[k];
+      if (c === "\\") k++;
+      else if (c === "`") {
+        blank(start, k);
+        return { end: k + 1, closed: true };
+      } else if (c === "$" && text[k + 1] === "{") {
+        blank(start, k);
+        return { end: k + 2, closed: false };
+      }
+    }
+    blank(start, n);
+    return { end: n, closed: true };
+  };
+  const braces = [];
+  const enterTemplate = (start) => {
+    const found = template(start);
+    if (found.closed) push(LITERAL);
+    else {
+      braces.push(0);
+      push("{");
+    }
+    return found.end;
+  };
+  let i = 0;
+  while (i < n) {
+    const c = text[i];
+    const next = text[i + 1];
+    if (/\s/.test(c)) {
+      i++;
+    } else if (c === "/" && next === "/") {
+      let k = i;
+      while (k < n && !isLineEnd(text[k])) k++;
+      blank(i, k);
+      i = k;
+    } else if (c === "/" && next === "*") {
+      const close = text.indexOf("*/", i + 2);
+      const k = close < 0 ? n : close + 2;
+      blank(i, k);
+      i = k;
+    } else if (c === "'" || c === '"') {
+      let k = i + 1;
+      while (k < n && text[k] !== c && !isLineEnd(text[k])) k += text[k] === "\\" ? 2 : 1;
+      const end = Math.min(k, n);
+      const modulePlace = prev === "from" || prev === "import" || prev === "(" && (before === "import" || before === "require");
+      if (!modulePlace) blank(i + 1, end);
+      i = end < n && text[end] === c ? end + 1 : end;
+      push(LITERAL);
+    } else if (c === "`") {
+      i = enterTemplate(i + 1);
+    } else if (c === "}" && braces.length > 0 && braces[braces.length - 1] === 0) {
+      braces.pop();
+      i = enterTemplate(i + 1);
+    } else if (c === "/" && text[i - 1] !== "<" && next !== ">" && (prev === "" || REGEX_AFTER.has(prev))) {
+      let k = i + 1;
+      let inClass = false;
+      let closed = false;
+      while (k < n && !isLineEnd(text[k])) {
+        const e = text[k];
+        if (e === "\\") {
+          k += k + 1 < n && !isLineEnd(text[k + 1]) ? 2 : 1;
+          continue;
+        }
+        if (inClass) {
+          if (e === "]") inClass = false;
+        } else if (e === "[") inClass = true;
+        else if (e === "/") {
+          closed = true;
+          break;
+        }
+        k++;
+      }
+      blank(i + 1, k);
+      i = closed ? k + 1 : k;
+      push(LITERAL);
+    } else if (isWordChar(c)) {
+      let k = i;
+      while (k < n && isWordChar(text[k])) k++;
+      push(text.slice(i, k));
+      i = k;
+    } else {
+      if (braces.length > 0) {
+        if (c === "{") braces[braces.length - 1]++;
+        else if (c === "}") braces[braces.length - 1]--;
+      }
+      push(c);
+      i++;
+    }
+  }
+  return out.join("");
+}
+var STATIC = /(?<![.\w$])(?:import|export)\s+(?:type\s+)?[\w*$\s{},]*?\s*from\s*(['"])([^'"\n]+)\1/g;
+var SIDE = /(?<![.\w$])import\s*(['"])([^'"\n]+)\1/g;
+var DYN = /(?<![.\w$])import\s*\(\s*(['"])([^'"\n]+)\1\s*[,)]/g;
+var REQ = /(?<![.\w$])require\s*\(\s*(['"])([^'"\n]+)\1\s*\)/g;
+var REQ_TS = /(?<![.\w$])import\s+[\w$]+\s*=\s*require\s*\(\s*(['"])([^'"\n]+)\1\s*\)/g;
+function importPaths(text, ts) {
+  const out = [];
+  for (const expression of [STATIC, SIDE, DYN, ts ? REQ_TS : REQ]) {
+    for (const match of text.matchAll(expression)) out.push({ path: match[2], at: match.index });
+  }
+  return out;
+}
+function fileImports(text, ts) {
+  const read = importPaths(erased(text), ts);
+  const left = /* @__PURE__ */ new Map();
+  for (const f of read) left.set(f.path, (left.get(f.path) ?? 0) + 1);
+  const firstAt = /* @__PURE__ */ new Map();
+  const extra = /* @__PURE__ */ new Set();
+  for (const f of importPaths(text, ts)) {
+    firstAt.set(f.path, Math.min(firstAt.get(f.path) ?? f.at, f.at));
+    const count2 = left.get(f.path) ?? 0;
+    if (count2 > 0) left.set(f.path, count2 - 1);
+    else extra.add(f.path);
+  }
+  const onlyWritten = [...extra].map((path) => ({ path, at: firstAt.get(path) })).sort((a, b) => a.at - b.at);
+  return { read, onlyWritten };
+}
+var STRING = String.raw`"(?:\\.|[^"\\])*"`;
+var COMMENT = new RegExp(String.raw`${STRING}|//[^\n\r]*|/\*[\s\S]*?(?:\*/|$)`, "g");
+var LAST_COMMA = new RegExp(String.raw`${STRING}|,(?=\s*[}\]])`, "g");
+function parseConfigJson(text) {
+  const plain2 = text.replace(COMMENT, (m) => m[0] === '"' ? m : " ").replace(LAST_COMMA, (m) => m[0] === '"' ? m : "");
+  try {
+    return JSON.parse(plain2);
+  } catch {
+    return void 0;
+  }
+}
+var isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var isOutside = (path) => /^(\.\.(\/|$)|\/)/.test(path);
+function jsFacts(repo, owners, texts, isFile) {
+  const fileCache = /* @__PURE__ */ new Map();
+  const fileThere = (path) => {
+    if (isOutside(path)) return false;
+    if (!fileCache.has(path)) fileCache.set(path, isFile(path));
+    return fileCache.get(path);
+  };
+  const reasons = /* @__PURE__ */ new Map();
+  const note = (path, reason) => {
+    if (!reasons.has(path)) reasons.set(path, reason);
+  };
+  const references = /* @__PURE__ */ new Set();
+  const parsed = /* @__PURE__ */ new Map();
+  const read = (path) => {
+    if (!parsed.has(path)) {
+      let value;
+      try {
+        value = parseConfigJson(readFileSync2(join2(repo, path), "utf8"));
+      } catch {
+        value = void 0;
+      }
+      parsed.set(path, isObj(value) ? value : void 0);
+    }
+    return parsed.get(path);
+  };
+  const load = (path, line) => {
+    const value = read(path);
+    if (value === void 0) {
+      note(path, "it is not JSON");
+      return null;
+    }
+    const dir = posix.dirname(path);
+    let aliases = {};
+    const written = typeof value.extends === "string" ? [value.extends] : Array.isArray(value.extends) ? value.extends : [];
+    for (const target of written) {
+      if (typeof target !== "string" || !(target.startsWith("./") || target.startsWith("../"))) continue;
+      let file = posix.join(dir, target);
+      if (!fileThere(file) && !file.endsWith(".json") && fileThere(`${file}.json`)) file = `${file}.json`;
+      if (!fileThere(file)) {
+        note(path, `extends ${JSON.stringify(target)} is not a file`);
+        continue;
+      }
+      if (line.includes(file)) continue;
+      const parent = load(file, [...line, file]);
+      if (parent !== null) aliases = { ...aliases, ...parent };
+    }
+    const options = isObj(value.compilerOptions) ? value.compilerOptions : {};
+    if (typeof options.baseUrl === "string") aliases = { ...aliases, baseUrl: posix.join(dir, options.baseUrl) };
+    if (isObj(options.paths)) {
+      const entries = Object.entries(options.paths).map(([key, values]) => [
+        key,
+        Array.isArray(values) ? values.filter((v) => typeof v === "string") : []
+      ]);
+      aliases = { ...aliases, paths: { entries, dir } };
+    }
+    return aliases;
+  };
+  const configOf2 = /* @__PURE__ */ new Map();
+  const configFor = (dir) => {
+    if (configOf2.has(dir)) return configOf2.get(dir);
+    const place = (name) => dir === "." ? name : `${dir}/${name}`;
+    let aliases;
+    const file = [place("tsconfig.json"), place("jsconfig.json")].find(fileThere);
+    if (file !== void 0) {
+      aliases = load(file, [file]);
+      const value = read(file);
+      if (aliases !== null && Array.isArray(value?.references) && value.references.length > 0 && aliases.baseUrl === void 0 && aliases.paths === void 0) {
+        references.add(file);
+      }
+    } else aliases = dir === "." ? null : configFor(posix.dirname(dir));
+    configOf2.set(dir, aliases);
+    return aliases;
+  };
+  const fileFor = (path) => {
+    const tries = [];
+    if (path.endsWith(".js")) tries.push(...[".ts", ".tsx", ".d.ts"].map((e) => path.slice(0, -3) + e));
+    else if (path.endsWith(".jsx")) tries.push(...[".tsx", ".d.ts"].map((e) => path.slice(0, -4) + e));
+    const exts = [".ts", ".tsx", ".d.ts", ".js", ".jsx"];
+    tries.push(path, ...exts.map((e) => path + e), ...exts.map((e) => posix.join(path, `index${e}`)));
+    return tries.map((p2) => posix.normalize(p2)).find(fileThere) ?? null;
+  };
+  const resolve2 = (from, path) => {
+    if (/^\.\.?(\/|$)/.test(path)) {
+      return fileFor(posix.join(posix.dirname(from), path)) ?? "missing";
+    }
+    const aliases = configFor(posix.dirname(from));
+    if (aliases === null) return null;
+    if (aliases.paths !== void 0) {
+      let key = aliases.paths.entries.find(([k]) => !k.includes("*") && k === path);
+      let star = "";
+      if (key === void 0) {
+        let longest = -1;
+        for (const entry of aliases.paths.entries) {
+          const parts = entry[0].split("*");
+          if (parts.length !== 2) continue;
+          const [head, tail] = parts;
+          if (path.length < head.length + tail.length || !path.startsWith(head) || !path.endsWith(tail)) continue;
+          if (head.length > longest) {
+            longest = head.length;
+            key = entry;
+            star = path.slice(head.length, path.length - tail.length);
+          }
+        }
+      }
+      if (key !== void 0) {
+        const base = aliases.baseUrl ?? aliases.paths.dir;
+        for (const value of key[1]) {
+          if (value.startsWith("/")) continue;
+          const found = fileFor(posix.join(base, key[0].includes("*") ? value.replace("*", star) : value));
+          if (found !== null) return found;
+        }
+        return "missing";
+      }
+    }
+    if (aliases.baseUrl !== void 0) return fileFor(posix.join(aliases.baseUrl, path));
+    return null;
+  };
+  let notResolved = 0;
+  const pairs = /* @__PURE__ */ new Map();
+  const onlyWritten = /* @__PURE__ */ new Map();
+  const ownerOf = (file) => file === null || file === "missing" ? null : owners.get(file) ?? null;
+  const add = (map, from, to, value) => {
+    if (to === null || to === from) return;
+    const row = map.get(from) ?? /* @__PURE__ */ new Map();
+    map.set(from, row);
+    if (!row.has(to)) row.set(to, value);
+  };
+  for (const [file, text] of texts) {
+    const from = owners.get(file);
+    configFor(posix.dirname(file));
+    const found = fileImports(text, isTs(file));
+    const counted = /* @__PURE__ */ new Set();
+    for (const f of found.read) {
+      const target = resolve2(file, f.path);
+      if (target === "missing" && !counted.has(f.path)) {
+        counted.add(f.path);
+        notResolved++;
+      }
+      add(pairs, from, ownerOf(target), file);
+    }
+    for (const f of found.onlyWritten) add(onlyWritten, from, ownerOf(resolve2(file, f.path)), { file, path: f.path });
+  }
+  const configs = [
+    ...[...reasons.keys()].sort(byCodeUnit).map((path) => ({
+      code: "tsconfig-not-read",
+      path,
+      message: `${path} is not read: ${reasons.get(path)}`
+    })),
+    ...[...references].sort(byCodeUnit).map((path) => ({
+      code: "tsconfig-references-not-followed",
+      path,
+      message: `${path} has references, which are not followed, and no paths or baseUrl, so aliases in the referenced configs are not used`
+    }))
+  ];
+  return { files: texts.size, notResolved, pairs, onlyWritten, configs };
+}
+
+// src/measure.ts
+var byCodeUnit2 = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 function listFiles(repo, prunedDirs) {
   const out = [];
   const visit = (dir, prefix) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = prefix + entry.name;
       if (entry.isDirectory()) {
-        if (!prunedDirs.has(entry.name)) visit(join2(dir, entry.name), path + "/");
+        if (!prunedDirs.has(entry.name)) visit(join3(dir, entry.name), path + "/");
       } else if (entry.isFile()) {
         out.push(path);
       }
     }
   };
   visit(repo, "");
-  return out.sort(byCodeUnit);
+  return out.sort(byCodeUnit2);
 }
 function extensionOf(path) {
   const name = path.slice(path.lastIndexOf("/") + 1);
@@ -482,7 +797,7 @@ function isPlainFile(repo, path) {
   const segments = path.split("/");
   try {
     for (let i = 1; i <= segments.length; i++) {
-      const stat = lstatSync(join2(repo, ...segments.slice(0, i)), { throwIfNoEntry: false });
+      const stat = lstatSync(join3(repo, ...segments.slice(0, i)), { throwIfNoEntry: false });
       if (stat === void 0 || stat.isSymbolicLink()) return false;
       if (i === segments.length) return stat.isFile();
       if (!stat.isDirectory()) return false;
@@ -515,6 +830,7 @@ function measure(repo, config, plan) {
   const wonBy = /* @__PURE__ */ new Map();
   const lines = /* @__PURE__ */ new Map();
   const java = /* @__PURE__ */ new Map();
+  const js = /* @__PURE__ */ new Map();
   let watchedFiles = 0;
   for (const path of files) {
     if (!rules.isWatched(path)) {
@@ -538,16 +854,17 @@ function measure(repo, config, plan) {
       owners.set(path, null);
       continue;
     }
-    const ids = [...matched.keys()].sort(byCodeUnit);
+    const ids = [...matched.keys()].sort(byCodeUnit2);
     if (ids.length > 1) contested.push({ path, parts: ids });
     owners.set(path, ids[0]);
     wonBy.set(path, matched.get(ids[0]));
     const total = totals.get(ids[0]);
     total.files++;
-    const bytes = readFileSync2(join2(repo, path));
+    const bytes = readFileSync3(join3(repo, path));
     lines.set(path, lineTotal(bytes));
     total.lines += lines.get(path);
     if (path.endsWith(".java")) java.set(path, javaFile(bytes.toString("utf8")));
+    if (isJsRead(path) && ids.length === 1) js.set(path, bytes.toString("utf8"));
   }
   return {
     parts: plan.map((p2) => ({ id: p2.id, ...totals.get(p2.id) })),
@@ -558,7 +875,8 @@ function measure(repo, config, plan) {
     owners,
     wonBy,
     lines,
-    java
+    java,
+    js
   };
 }
 
@@ -597,7 +915,7 @@ var stem = (name) => {
 var joinPath = (a, b) => a === "" ? b : b === "" ? a : `${a}/${b}`;
 var isAncestor = (dir, path) => dir === "" ? path !== "" : isUnder(path, dir);
 var strip = (path, dir) => dir === "" ? path : path.slice(dir.length + 1);
-var sorted = (items) => [...new Set(items)].sort(byCodeUnit);
+var sorted = (items) => [...new Set(items)].sort(byCodeUnit2);
 function asGlobLiteral(path) {
   return path.replace(/[*?[{]/g, (c) => `[${c}]`);
 }
@@ -607,7 +925,7 @@ function normalizeId(text) {
 }
 function isRealDir(repo, path) {
   try {
-    return lstatSync2(join3(repo, path), { throwIfNoEntry: false })?.isDirectory() ?? false;
+    return lstatSync2(join4(repo, path), { throwIfNoEntry: false })?.isDirectory() ?? false;
   } catch {
     return false;
   }
@@ -639,14 +957,14 @@ var layerOf = (f) => f.module !== null && f.root !== null && ["java", "kt"].incl
 function compareParts(a, b) {
   if (a.kind !== b.kind) return a.kind - b.kind;
   if (a.kind === 1) {
-    const byModule = byCodeUnit(moduleName(a.module), moduleName(b.module));
+    const byModule = byCodeUnit2(moduleName(a.module), moduleName(b.module));
     if (byModule !== 0) return byModule;
   }
-  return byCodeUnit(a.path, b.path);
+  return byCodeUnit2(a.path, b.path);
 }
 function readRawConfig(repo) {
-  const file = join3(repo, CONFIG_FILE);
-  return existsSync2(file) ? JSON.parse(readFileSync3(file, "utf8")) : {};
+  const file = join4(repo, CONFIG_FILE);
+  return existsSync2(file) ? JSON.parse(readFileSync4(file, "utf8")) : {};
 }
 function checkRoot(repo, root, where) {
   const parts = root.split("/").filter((s) => s !== "" && s !== ".");
@@ -696,7 +1014,7 @@ function chooseLanguages(repo, options, config, raw) {
     return { languages: sorted(options.languages), source: "command line" };
   }
   if (raw.languages !== void 0) return { languages: config.languages, source: "codeplan.json" };
-  const detected = Object.keys(LANGUAGES).filter((l) => LANGUAGES[l].detect.some((f) => existsSync2(join3(repo, f)))).sort(byCodeUnit);
+  const detected = Object.keys(LANGUAGES).filter((l) => LANGUAGES[l].detect.some((f) => existsSync2(join4(repo, f)))).sort(byCodeUnit2);
   if (detected.length > 0) return { languages: detected, source: "detected" };
   return { languages: ["js"], source: "default" };
 }
@@ -743,9 +1061,9 @@ function findModules(repo, files, given, tests, rules) {
 }
 var namespaces = /* @__PURE__ */ new Map();
 function readNamespace(repo, path) {
-  const key = join3(repo, path);
+  const key = join4(repo, path);
   if (!namespaces.has(key)) {
-    const match = MAPPER_NS_ATTR.exec(readFileSync3(key, "utf8"));
+    const match = MAPPER_NS_ATTR.exec(readFileSync4(key, "utf8"));
     const value = match ? match[1] ?? match[2] ?? "" : "";
     namespaces.set(key, value.trim() === "" ? null : value.trim());
   }
@@ -826,7 +1144,7 @@ function draft(repo, options) {
   const resourcesIndex = modules.filter((m) => m.resources !== null).sort((a, b) => b.resources.length - a.resources.length);
   const languageRootWatch = many && given === null ? languageRoots.flatMap((r) => codeExts.map((e) => `${r}/**/*.${e}`)) : [];
   const languageRootSet = new GlobSet(languageRootWatch);
-  const lineCount = (path) => lineTotal(readFileSync3(join3(repo, path)));
+  const lineCount = (path) => lineTotal(readFileSync4(join4(repo, path)));
   const collected = [];
   const outside = [];
   for (const path of all) {
@@ -1126,7 +1444,7 @@ function draft(repo, options) {
     const best = (candidates, counted) => {
       const count2 = (p2) => counted.filter((x) => found.get(x) === p2).length;
       const ranked = [...new Set(candidates)].sort(
-        (a, b) => count2(b) - count2(a) || codeLines(b) - codeLines(a) || byCodeUnit(a.id, b.id)
+        (a, b) => count2(b) - count2(a) || codeLines(b) - codeLines(a) || byCodeUnit2(a.id, b.id)
       );
       return ranked[0] ?? null;
     };
@@ -1134,7 +1452,7 @@ function draft(repo, options) {
       const count2 = (p2) => m.mappers.filter((x) => found.get(x) === p2).length;
       const lines = (p2) => linesOf(m.code.filter((f) => byName.get(f) === p2));
       return [...new Set(m.code.map((f) => byName.get(f)))].sort(
-        (a, b) => count2(b) - count2(a) || lines(b) - lines(a) || byCodeUnit(a.path, b.path)
+        (a, b) => count2(b) - count2(a) || lines(b) - lines(a) || byCodeUnit2(a.path, b.path)
       )[0];
     };
     const representative = m.start !== null ? resolve2(m.start) : best(remaining(m.code).map((f) => ownerOf.get(f.path)), m.mappers) ?? fromNames();
@@ -1176,7 +1494,7 @@ function draft(repo, options) {
       `${prefix}src/main/resources/**/*Mapper.xml`
     );
   }
-  mappers.restFiles.sort(byCodeUnit);
+  mappers.restFiles.sort(byCodeUnit2);
   const pathsOf = (p2) => {
     const globsUnderRoots = (files, pkg) => sorted(files.filter((f) => f.root !== null).map((f) => f.root)).map(
       (root) => `${asGlobLiteral(joinPath(root, pkg))}/**`
@@ -1338,7 +1656,7 @@ function draft(repo, options) {
 }
 
 // src/history.ts
-import { lstatSync as lstatSync4, readdirSync as readdirSync2, readFileSync as readFileSync4 } from "node:fs";
+import { lstatSync as lstatSync4, readdirSync as readdirSync2, readFileSync as readFileSync5 } from "node:fs";
 
 // src/page.ts
 var PAGE_MARK = "<!doctype html><!-- codeplan page -->";
@@ -1900,7 +2218,7 @@ function pageHtml(data, frame = FRAME) {
 
 // src/validate.ts
 import { lstatSync as lstatSync3 } from "node:fs";
-import { join as join4 } from "node:path";
+import { join as join5 } from "node:path";
 var SEVERITY = {
   "bad-shape": "error",
   "repeated-id": "error",
@@ -1924,7 +2242,10 @@ var SEVERITY = {
   "evidence-no-file": "info",
   "evidence-no-line": "info",
   "import-without-use": "info",
-  "use-without-import": "info"
+  "use-without-import": "info",
+  "import-needs-check": "info",
+  "tsconfig-not-read": "info",
+  "tsconfig-references-not-followed": "info"
 };
 function diagnostic(code, at, message) {
   return { code, severity: SEVERITY[code], at, message };
@@ -1942,7 +2263,7 @@ var KNOWN = {
 };
 var STATUSES = ["todo", "doing", "done"];
 var isStatus = (v) => STATUSES.includes(v);
-var isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var isObj2 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 var validId = (v) => typeof v === "string" && ID_FORM.test(v);
 var arrayOf = (v) => Array.isArray(v) ? v : [];
 function goodPaths(paths) {
@@ -1961,23 +2282,23 @@ function preparePlan(raw) {
     used: /* @__PURE__ */ new Set(),
     brokenRelation: false
   };
-  if (!isObj(raw)) return prepared;
+  if (!isObj2(raw)) return prepared;
   const parts = arrayOf(raw.parts);
   const externals = arrayOf(raw.externals);
   const scenarios = arrayOf(raw.scenarios);
   const seen = /* @__PURE__ */ new Set();
   for (const item of [...parts, ...externals, ...scenarios, ...arrayOf(raw.tasks)]) {
-    if (!isObj(item) || !validId(item.id)) continue;
+    if (!isObj2(item) || !validId(item.id)) continue;
     if (seen.has(item.id)) prepared.repeatedItems.add(item);
     else seen.add(item.id);
   }
-  const kept = (item) => isObj(item) && validId(item.id) && !prepared.repeatedItems.has(item);
+  const kept = (item) => isObj2(item) && validId(item.id) && !prepared.repeatedItems.has(item);
   for (const item of [...parts, ...externals]) if (kept(item)) prepared.targets.add(item.id);
   for (const part of parts) if (kept(part)) prepared.partIds.add(part.id);
   for (const part of parts) {
     if (kept(part) && goodPaths(part.paths)) prepared.parts.push({ id: part.id, paths: part.paths, planned: part.planned === true });
     else prepared.excluded++;
-    if (!isObj(part)) continue;
+    if (!isObj2(part)) continue;
     if (prepared.repeatedItems.has(part)) prepared.skipInGaps.add(part.id);
     if (part.uses === void 0) continue;
     if (!Array.isArray(part.uses)) {
@@ -1986,7 +2307,7 @@ function preparePlan(raw) {
       continue;
     }
     for (const use of part.uses) {
-      if (!isObj(use) || !validId(use.to) || !prepared.targets.has(use.to)) {
+      if (!isObj2(use) || !validId(use.to) || !prepared.targets.has(use.to)) {
         prepared.brokenRelation = true;
         continue;
       }
@@ -1999,13 +2320,13 @@ function preparePlan(raw) {
     }
   }
   for (const scenario of scenarios) {
-    if (!isObj(scenario)) continue;
+    if (!isObj2(scenario)) continue;
     if (!Array.isArray(scenario.steps)) {
       prepared.brokenRelation = true;
       continue;
     }
     for (const step of scenario.steps) {
-      if (!isObj(step) || !validId(step.at) || !prepared.targets.has(step.at)) {
+      if (!isObj2(step) || !validId(step.at) || !prepared.targets.has(step.at)) {
         prepared.brokenRelation = true;
         continue;
       }
@@ -2017,13 +2338,13 @@ function preparePlan(raw) {
 function taskPaths(task) {
   if (!("makes" in task)) return [];
   if (!Array.isArray(task.makes)) return null;
-  return [...new Set(task.makes.filter((p2) => typeof p2 === "string" && isPathForm(p2)))].sort(byCodeUnit);
+  return [...new Set(task.makes.filter((p2) => typeof p2 === "string" && isPathForm(p2)))].sort(byCodeUnit2);
 }
 function planTasks(prepared, isFile) {
-  if (!isObj(prepared.raw)) return [];
+  if (!isObj2(prepared.raw)) return [];
   const out = [];
   for (const task of arrayOf(prepared.raw.tasks)) {
-    if (!isObj(task) || !validId(task.id) || prepared.repeatedItems.has(task)) continue;
+    if (!isObj2(task) || !validId(task.id) || prepared.repeatedItems.has(task)) continue;
     const makes = taskPaths(task) ?? [];
     out.push({
       id: task.id,
@@ -2053,13 +2374,18 @@ function diagnosePlan(prepared, facts) {
   const out = [];
   const emit = (code, at, message) => out.push(diagnostic(code, at, message));
   const raw = prepared.raw;
-  if (!isObj(raw)) {
+  if (!isObj2(raw)) {
     emit("bad-shape", "plan", "the plan must be a JSON object");
     return out;
   }
   const measured = new Set(prepared.parts.map((p2) => p2.id));
   const plannedIds = new Set(prepared.parts.filter((p2) => p2.planned).map((p2) => p2.id));
   const imports = facts.imports;
+  const js = facts.js;
+  const pairExample = (a, b) => {
+    const found = [imports?.pairs.get(a)?.get(b), js?.pairs.get(a)?.get(b)].filter((p2) => p2 !== void 0);
+    return found.sort(byCodeUnit2)[0];
+  };
   const sharePackage = (a, b) => [...imports.packages.get(a)].some((p2) => imports.packages.get(b).has(p2));
   const missing = (at, who, key) => emit("bad-shape", at, `${who}\`${key}\` is required`);
   const string = (obj, key, at, who, required) => {
@@ -2088,7 +2414,7 @@ function diagnosePlan(prepared, facts) {
     if ("note" in obj && typeof obj.note !== "string") {
       emit("bad-shape", place("note"), `${who}\`note\` must be a string`);
     }
-    for (const key of Object.keys(obj).filter((k) => !known.includes(k)).sort(byCodeUnit)) {
+    for (const key of Object.keys(obj).filter((k) => !known.includes(k)).sort(byCodeUnit2)) {
       emit("bad-shape", place(key), `${who}unknown key \`${key}\``);
     }
   };
@@ -2101,6 +2427,7 @@ function diagnosePlan(prepared, facts) {
     }
     return validId(obj.id) ? `${kind} "${obj.id}": ` : "";
   };
+  for (const finding of js?.configs ?? []) emit(finding.code, "plan", finding.message);
   if (raw.format !== 1) emit("bad-shape", "format", "`format` must be 1");
   string(raw, "name", "name", "", true);
   text(raw, "about", "about", "", true, true);
@@ -2124,7 +2451,7 @@ function diagnosePlan(prepared, facts) {
   }
   rest(raw, "", "", KNOWN.plan);
   function checkTask(task, at) {
-    if (!isObj(task)) {
+    if (!isObj2(task)) {
       emit("bad-shape", at, "a task must be an object");
       return;
     }
@@ -2185,7 +2512,7 @@ function diagnosePlan(prepared, facts) {
     rest(task, at, who, KNOWN.task);
   }
   function checkPart(part, at) {
-    if (!isObj(part)) {
+    if (!isObj2(part)) {
       emit("bad-shape", at, "a part must be an object");
       return;
     }
@@ -2204,7 +2531,7 @@ function diagnosePlan(prepared, facts) {
       } else if (!repeated) {
         let isFile = false;
         try {
-          isFile = lstatSync3(join4(facts.repo, start), { throwIfNoEntry: false })?.isFile() ?? false;
+          isFile = lstatSync3(join5(facts.repo, start), { throwIfNoEntry: false })?.isFile() ?? false;
         } catch {
           isFile = false;
         }
@@ -2240,11 +2567,20 @@ function diagnosePlan(prepared, facts) {
       );
     }
     const uses = "uses" in part ? part.uses : [];
-    if (imports !== null && partId !== null && !repeated && !planned && Array.isArray(uses)) {
-      const named = new Set(uses.map((use) => isObj(use) ? use.to : void 0));
+    if ((imports !== null || js !== null) && partId !== null && !repeated && !planned && Array.isArray(uses)) {
+      const named = new Set(uses.map((use) => isObj2(use) ? use.to : void 0));
       for (const other of prepared.parts) {
-        const example = imports.pairs.get(partId)?.get(other.id);
-        if (example === void 0 || other.planned || named.has(other.id)) continue;
+        if (other.planned || named.has(other.id)) continue;
+        const example = pairExample(partId, other.id);
+        const written = js?.onlyWritten.get(partId)?.get(other.id);
+        if (example === void 0 && written !== void 0) {
+          emit(
+            "import-needs-check",
+            `${at}.uses`,
+            `${who}${written.file} may import files of part "${other.id}" through ${JSON.stringify(written.path)}, found only when comments and strings are read too, and the plan has no use of it`
+          );
+        }
+        if (example === void 0) continue;
         emit(
           "import-without-use",
           `${at}.uses`,
@@ -2259,7 +2595,7 @@ function diagnosePlan(prepared, facts) {
         const seenTo = /* @__PURE__ */ new Set();
         part.uses.forEach((use, k) => {
           const uat = `${at}.uses[${k}]`;
-          if (!isObj(use)) {
+          if (!isObj2(use)) {
             emit("bad-shape", uat, `${who}a use must be an object`);
             return;
           }
@@ -2274,7 +2610,7 @@ function diagnosePlan(prepared, facts) {
             if (!prepared.targets.has(to)) {
               emit("unknown-target", `${uat}.to`, `${who}"${to}" is not a part or external`);
             }
-            if (imports !== null && partId !== null && to !== partId && prepared.partIds.has(to) && !planned && !plannedIds.has(to) && imports.packages.has(partId) && imports.packages.has(to) && !sharePackage(partId, to) && !imports.pairs.get(partId)?.has(to) && !imports.possible.get(partId)?.has(to)) {
+            if (imports !== null && partId !== null && to !== partId && prepared.partIds.has(to) && !planned && !plannedIds.has(to) && imports.packages.has(partId) && imports.packages.has(to) && !sharePackage(partId, to) && pairExample(partId, to) === void 0 && !imports.possible.get(partId)?.has(to)) {
               emit("use-without-import", `${uat}.to`, `${who}no file of this part imports a file of part "${to}"`);
             }
           }
@@ -2300,7 +2636,7 @@ function diagnosePlan(prepared, facts) {
     rest(part, at, who, KNOWN.part);
   }
   function checkExternal(external, at) {
-    if (!isObj(external)) {
+    if (!isObj2(external)) {
       emit("bad-shape", at, "an external must be an object");
       return;
     }
@@ -2314,7 +2650,7 @@ function diagnosePlan(prepared, facts) {
     rest(external, at, who, KNOWN.external);
   }
   function checkScenario(scenario, at) {
-    if (!isObj(scenario)) {
+    if (!isObj2(scenario)) {
       emit("bad-shape", at, "a scenario must be an object");
       return;
     }
@@ -2329,11 +2665,11 @@ function diagnosePlan(prepared, facts) {
       if (!repeated && steps.length < 2) {
         emit("short-scenario", `${at}.steps`, `${who}a scenario needs two steps or more`);
       }
-      const known = (step) => isObj(step) && validId(step.at) && prepared.targets.has(step.at) && !prepared.skipInGaps.has(step.at) ? step.at : null;
+      const known = (step) => isObj2(step) && validId(step.at) && prepared.targets.has(step.at) && !prepared.skipInGaps.has(step.at) ? step.at : null;
       const linked = (a, b) => (prepared.usesOf.get(a)?.has(b) ?? false) || (prepared.usesOf.get(b)?.has(a) ?? false);
       steps.forEach((step, k) => {
         const sat = `${at}.steps[${k}]`;
-        if (!isObj(step)) {
+        if (!isObj2(step)) {
           emit("bad-shape", sat, `${who}a step must be an object`);
           return;
         }
@@ -2361,7 +2697,7 @@ function diagnosePlan(prepared, facts) {
   out.forEach((d, i) => {
     if (!first.has(d.at)) first.set(d.at, i);
   });
-  return out.map((d, i) => ({ d, i })).sort((x, y) => first.get(x.d.at) - first.get(y.d.at) || byCodeUnit(x.d.code, y.d.code) || x.i - y.i).map((x) => x.d);
+  return out.map((d, i) => ({ d, i })).sort((x, y) => first.get(x.d.at) - first.get(y.d.at) || byCodeUnit2(x.d.code, y.d.code) || x.i - y.i).map((x) => x.d);
 }
 
 // src/summary.ts
@@ -2384,7 +2720,7 @@ function mermaidLines(value) {
   const partLine = (p2, indent) => `${indent}${node.get(p2.id)}["${nodeLabel(shown(p2))}"]`;
   const zoneOf = (p2) => p2.zone ?? "";
   const lines = ["flowchart LR"];
-  const zones = [...new Set(plan.parts.map(zoneOf).filter((z) => z !== ""))].sort(byCodeUnit);
+  const zones = [...new Set(plan.parts.map(zoneOf).filter((z) => z !== ""))].sort(byCodeUnit2);
   zones.forEach((zone, i) => {
     lines.push(`  subgraph z${i}["${nodeLabel(zone)}"]`);
     for (const p2 of plan.parts) if (zoneOf(p2) === zone) lines.push(partLine(p2, "    "));
@@ -2534,10 +2870,16 @@ function takeSnapshot(found) {
       files: counts.get(p2.id).files,
       lines: counts.get(p2.id).lines
     })),
-    owned: [...m.owners].filter(([path, part]) => part !== null && !contested.has(path)).map(([path, part]) => ({ path, part, pattern: m.wonBy.get(path) })).sort((a, b) => byCodeUnit(a.path, b.path)),
-    orphans: complete ? [...m.orphans].sort(byCodeUnit) : [],
-    contested: m.contested.map((c) => ({ path: c.path, parts: [...c.parts].sort(byCodeUnit) })).sort((a, b) => byCodeUnit(a.path, b.path)),
-    unwatched: [...m.unwatched].sort(byCodeUnit),
+    ...found.jsImports === null ? {} : {
+      jsImports: {
+        ...found.jsImports,
+        toCheck: found.diagnostics.filter((d) => d.code === "import-needs-check").length
+      }
+    },
+    owned: [...m.owners].filter(([path, part]) => part !== null && !contested.has(path)).map(([path, part]) => ({ path, part, pattern: m.wonBy.get(path) })).sort((a, b) => byCodeUnit2(a.path, b.path)),
+    orphans: complete ? [...m.orphans].sort(byCodeUnit2) : [],
+    contested: m.contested.map((c) => ({ path: c.path, parts: [...c.parts].sort(byCodeUnit2) })).sort((a, b) => byCodeUnit2(a.path, b.path)),
+    unwatched: [...m.unwatched].sort(byCodeUnit2),
     tasks: found.tasks.map((t) => ({ id: t.id, status: t.status, makes: t.makes, missing: t.missing })),
     diagnostics: found.diagnostics.map((d) => ({
       at: d.at,
@@ -2552,9 +2894,9 @@ function snapshotText(snapshot2) {
   return `${JSON.stringify(snapshot2, null, 2)}
 `;
 }
-var isObj2 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var isObj3 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 var strings = (v) => Array.isArray(v) && v.every((s) => typeof s === "string");
-var each = (v, ok) => Array.isArray(v) && v.every((item) => isObj2(item) && ok(item));
+var each = (v, ok) => Array.isArray(v) && v.every((item) => isObj3(item) && ok(item));
 function readSnapshot(text) {
   let value;
   try {
@@ -2562,17 +2904,23 @@ function readSnapshot(text) {
   } catch {
     throw new Error("it is not JSON");
   }
-  return shapedSnapshot(value);
+  const snapshot2 = shapedSnapshot(value);
+  const j = snapshot2.jsImports;
+  const count2 = (v) => Number.isInteger(v) && v >= 0;
+  if ("jsImports" in snapshot2 && (!isObj3(j) || !count2(j.files) || !count2(j.notResolved) || !count2(j.toCheck))) {
+    throw new Error("its jsImports does not have the fields of a snapshot");
+  }
+  return snapshot2;
 }
 function shapedSnapshot(value) {
-  if (!isObj2(value)) throw new Error("it is not a snapshot");
+  if (!isObj3(value)) throw new Error("it is not a snapshot");
   if (value.snapshot !== SNAPSHOT_FORMAT) {
     throw new Error(`its snapshot format is ${JSON.stringify(value.snapshot)}, and this codeplan reads ${SNAPSHOT_FORMAT}`);
   }
   if (value.rules !== RULES) {
     throw new Error(`its counting rules are ${JSON.stringify(value.rules)}, and this codeplan counts with ${RULES}`);
   }
-  const shaped = isObj2(value.config) && (value.plan === "ok" || value.plan === "missing" || value.plan === "invalid") && typeof value.complete === "boolean" && typeof value.page === "string" && each(
+  const shaped = isObj3(value.config) && (value.plan === "ok" || value.plan === "missing" || value.plan === "invalid") && typeof value.complete === "boolean" && typeof value.page === "string" && each(
     value.parts,
     (p2) => typeof p2.id === "string" && strings(p2.paths) && typeof p2.planned === "boolean" && typeof p2.files === "number" && typeof p2.lines === "number"
   ) && each(value.owned, (o) => typeof o.path === "string" && typeof o.part === "string" && typeof o.pattern === "string") && strings(value.orphans) && each(value.contested, (c) => typeof c.path === "string" && strings(c.parts)) && strings(value.unwatched) && each(value.diagnostics, (d) => typeof d.at === "string" && typeof d.code === "string");
@@ -2612,7 +2960,7 @@ function sameValue(a, b) {
   if (Array.isArray(a) || Array.isArray(b)) {
     return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => sameValue(item, b[i]));
   }
-  if (isObj2(a) && isObj2(b)) {
+  if (isObj3(a) && isObj3(b)) {
     const keys = Object.keys(a);
     return keys.length === Object.keys(b).length && keys.every((k) => k in b && sameValue(a[k], b[k]));
   }
@@ -2635,7 +2983,7 @@ var taskRow = (t) => `| ${plain(t.id)} | ${t.status ?? ""} | ${filesCell(t)} |`;
 function taskChanges(head, base) {
   const before = new Map(base.tasks.map((t) => [t.id, t]));
   const after = new Set(head.tasks.map((t) => t.id));
-  const paths = (list2) => [...new Set(list2)].sort(byCodeUnit);
+  const paths = (list2) => [...new Set(list2)].sort(byCodeUnit2);
   const counts = (t) => `${t.makes.length - t.missing.length} of ${t.makes.length}`;
   const rows = [];
   for (const t of head.tasks) {
@@ -2711,7 +3059,7 @@ function newDirectories(head, base) {
     group.files++;
     groups.set(key, group);
   }
-  return [...groups.values()].sort((a, b) => byCodeUnit(a.dir, b.dir) || byCodeUnit(a.part, b.part) || byCodeUnit(a.pattern, b.pattern)).map((g) => `${plain(g.dir)}/: ${g.files} files went to part ${g.part} through ${plain(g.pattern)}`);
+  return [...groups.values()].sort((a, b) => byCodeUnit2(a.dir, b.dir) || byCodeUnit2(a.part, b.part) || byCodeUnit2(a.pattern, b.pattern)).map((g) => `${plain(g.dir)}/: ${g.files} files went to part ${g.part} through ${plain(g.pattern)}`);
 }
 function reportText(head, base) {
   const blocks = ["## codeplan", statusLine(head)];
@@ -2732,6 +3080,14 @@ function reportText(head, base) {
   }
   if (head.tasks.length > 0) {
     blocks.push("### Tasks", ...table("| Task | Status | Files |", head.tasks.map((t) => taskRow(t))));
+  }
+  if (head.jsImports !== void 0) {
+    const j = head.jsImports;
+    const inBase = base?.jsImports === void 0 ? "" : ` In the base: ${base.jsImports.files}, ${base.jsImports.notResolved}, ${base.jsImports.toCheck}.`;
+    blocks.push(
+      "### JS and TS imports",
+      `${j.files} files read, ${j.notResolved} import paths not resolved, ${j.toCheck} imports to check.${inBase}`
+    );
   }
   if (base !== null) {
     const changed = changes(head, base);
@@ -2796,7 +3152,7 @@ function readRecords(dir) {
     }
     let text;
     try {
-      text = readFileSync4(path, "utf8");
+      text = readFileSync5(path, "utf8");
     } catch {
       skipped.push({ file, reason: "cannot read" });
       continue;
@@ -2812,7 +3168,7 @@ function readRecords(dir) {
     }
     let text;
     try {
-      text = readFileSync4(path, "utf8");
+      text = readFileSync5(path, "utf8");
     } catch {
       skipped.push({ file, reason: "cannot read" });
       continue;
@@ -2820,8 +3176,8 @@ function readRecords(dir) {
     const first = text.split("\n", 1)[0].replace(/\r$/, "");
     records.push({ name, snapshot: null, line: [...first].slice(0, 200).join("").replace(CONTROL, "\uFFFD") });
   }
-  records.sort((a, b) => byCodeUnit(a.name, b.name));
-  skipped.sort((a, b) => byCodeUnit(a.file, b.file));
+  records.sort((a, b) => byCodeUnit2(a.name, b.name));
+  skipped.sort((a, b) => byCodeUnit2(a.file, b.file));
   return { records, skipped };
 }
 var planFields = (s) => ({
@@ -3084,17 +3440,17 @@ ${recordBlocks(c).join("\n")}
 }
 
 // src/plan.ts
-import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
-import { join as join5 } from "node:path";
+import { existsSync as existsSync3, readFileSync as readFileSync6 } from "node:fs";
+import { join as join6 } from "node:path";
 function planPath(home) {
   return `${home}/plan.json`;
 }
 function readPlanFile(repo, home) {
   const relative = planPath(home);
-  const file = join5(repo, relative);
+  const file = join6(repo, relative);
   if (!existsSync3(file)) return { kind: "missing" };
   try {
-    return { kind: "json", value: JSON.parse(readFileSync5(file, "utf8")) };
+    return { kind: "json", value: JSON.parse(readFileSync6(file, "utf8")) };
   } catch (e) {
     return { kind: "not-json", message: `${relative} is not valid JSON: ${e.message}` };
   }
@@ -3240,7 +3596,7 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
     end.level = y;
     end.row = row;
   };
-  const zoneNames = [...new Set(inputs.map((p2) => p2.zone ?? "").filter((z) => z !== ""))].sort(byCodeUnit);
+  const zoneNames = [...new Set(inputs.map((p2) => p2.zone ?? "").filter((z) => z !== ""))].sort(byCodeUnit2);
   const zones = [];
   const blocks = [];
   for (const name of zoneNames) {
@@ -3459,7 +3815,7 @@ function raisedPicture(inputs, externalInputs) {
   });
   const zones = [];
   const zoneBlocks = /* @__PURE__ */ new Map();
-  const zoneNames = [...new Set(inputs.map((p2) => p2.zone ?? "").filter((name) => name !== ""))].sort(byCodeUnit);
+  const zoneNames = [...new Set(inputs.map((p2) => p2.zone ?? "").filter((name) => name !== ""))].sort(byCodeUnit2);
   for (const name of zoneNames) {
     const inner = joined(parts.filter((_, i) => inputs[i].zone === name).map(partCell));
     const tw = titleWidth(name);
@@ -3592,16 +3948,16 @@ var OPTIONS = ["--repo", "--no-page", "--max-parts", "--parts-by-name", "--langu
 function pagePlace(repo, page) {
   const segments = page.split("/");
   for (let i = 1; i < segments.length; i++) {
-    const dir = lstatSync5(join6(repo, ...segments.slice(0, i)), { throwIfNoEntry: false });
+    const dir = lstatSync5(join7(repo, ...segments.slice(0, i)), { throwIfNoEntry: false });
     if (dir === void 0) break;
     if (dir.isSymbolicLink()) return { kind: "other", what: "a path through a symbolic link" };
     if (!dir.isDirectory()) return { kind: "other", what: "a path that passes through a file" };
   }
-  const stat = lstatSync5(join6(repo, page), { throwIfNoEntry: false });
+  const stat = lstatSync5(join7(repo, page), { throwIfNoEntry: false });
   if (stat === void 0) return { kind: "absent" };
   if (stat.isSymbolicLink()) return { kind: "other", what: "a symbolic link" };
   if (!stat.isFile()) return { kind: "other", what: stat.isDirectory() ? "a directory" : "not a regular file" };
-  const bytes = readFileSync6(join6(repo, page));
+  const bytes = readFileSync7(join7(repo, page));
   if (!bytes.subarray(0, PAGE_MARK.length).equals(Buffer.from(PAGE_MARK))) {
     return { kind: "other", what: "a file that does not start with the codeplan page mark" };
   }
@@ -3634,13 +3990,16 @@ function check(repo, page = "compare") {
     const plan = planPath(config.home);
     const measurement2 = measure(repo, config, []);
     const diagnostics2 = [diagnostic("no-plan", "plan", `${plan} not found, so every watched file is an orphan`)];
-    return { kind: "measured", config, plan: null, measured: [], measurement: measurement2, diagnostics: diagnostics2, tasks: [], excluded: 0, page: notCompared };
+    const jsImports = config.languages.includes("js") ? { files: 0, notResolved: 0 } : null;
+    return { kind: "measured", config, plan: null, measured: [], measurement: measurement2, diagnostics: diagnostics2, tasks: [], excluded: 0, jsImports, page: notCompared };
   }
   const prepared = preparePlan(file.value);
   const measurement = measure(repo, config, prepared.parts);
   const isFile = (path) => isPlainFile(repo, path);
   const tasks = planTasks(prepared, isFile);
   const otherLines = /* @__PURE__ */ new Map();
+  const judged = prepared.excluded === 0 && measurement.contested.length === 0;
+  const js = judged && config.languages.includes("js") ? jsFacts(repo, measurement.owners, measurement.js, isFile) : null;
   const diagnostics = diagnosePlan(prepared, {
     repo,
     isFile,
@@ -3653,7 +4012,7 @@ function check(repo, page = "compare") {
       if (!otherLines.has(path)) {
         let count2 = null;
         try {
-          if (isPlainFile(repo, path)) count2 = lineTotal(readFileSync6(join6(repo, path)));
+          if (isPlainFile(repo, path)) count2 = lineTotal(readFileSync7(join7(repo, path)));
         } catch {
           count2 = null;
         }
@@ -3661,7 +4020,8 @@ function check(repo, page = "compare") {
       }
       return otherLines.get(path);
     },
-    imports: config.languages.includes("java") && prepared.excluded === 0 && measurement.contested.length === 0 ? importFacts(measurement.owners, measurement.java) : null
+    imports: judged && config.languages.includes("java") ? importFacts(measurement.owners, measurement.java) : null,
+    js
   });
   const result2 = {
     kind: "measured",
@@ -3671,7 +4031,8 @@ function check(repo, page = "compare") {
     measurement,
     diagnostics,
     tasks,
-    excluded: prepared.excluded
+    excluded: prepared.excluded,
+    jsImports: js === null ? null : { files: js.files, notResolved: js.notResolved }
   };
   if (page === "skip" || place.kind === "other" || diagnostics.some((d) => d.severity === "error") || measurement.contested.length > 0) {
     return { ...result2, page: notCompared };
@@ -3766,12 +4127,12 @@ function update(repo) {
   }
   if (page.current) return { code: 0, stdout: `update: ${page.path} is up to date
 `, stderr: "" };
-  const target = join6(repo, page.path);
+  const target = join7(repo, page.path);
   let temp = null;
   try {
     mkdirSync(dirname(target), { recursive: true });
     for (let n = 0; temp === null; n++) {
-      const name = join6(dirname(target), `.${basename(target)}.${process.pid}.${n}.tmp`);
+      const name = join7(dirname(target), `.${basename(target)}.${process.pid}.${n}.tmp`);
       try {
         const fd = openSync(name, "wx");
         temp = name;
@@ -3815,7 +4176,10 @@ var FIXES = {
   "evidence-no-file": "write the path of a file that is in the repository, or remove the evidence",
   "evidence-no-line": "write the line that shows the use as the file is now, or remove the evidence",
   "import-without-use": "add a use of that part to this part's uses; nothing has to change if the plan is not to show that use",
-  "use-without-import": "nothing has to change if the part uses the other without an import line; remove the use if it is no longer there"
+  "use-without-import": "nothing has to change if the part uses the other without an import line; remove the use if it is no longer there",
+  "import-needs-check": "look at the import path in the file: add a use of that part if the code uses it; nothing has to change if the import is commented out or is only text",
+  "tsconfig-not-read": "make the config valid JSON (comments and trailing commas are allowed), or correct the path in extends",
+  "tsconfig-references-not-followed": "nothing has to change if no import path uses an alias of the referenced configs; otherwise write those paths or baseUrl in this config too"
 };
 var fixFor = (code, plan) => code === "no-plan" ? `create ${plan} and give each part the paths it owns` : FIXES[code];
 function findingLines(diagnostics, plan) {
@@ -3839,6 +4203,7 @@ function snapshotOf(repo) {
     diagnostics: result2.diagnostics,
     tasks: result2.tasks,
     excluded: result2.excluded,
+    jsImports: result2.jsImports,
     pageState: result2.page.state,
     fix: (code) => fixFor(code, plan)
   });
@@ -3853,7 +4218,7 @@ function report(repo, baseFile) {
     try {
       let text;
       try {
-        text = readFileSync6(baseFile, "utf8");
+        text = readFileSync7(baseFile, "utf8");
       } catch {
         throw new Error("it cannot be read");
       }

@@ -30,12 +30,20 @@ export interface Snapshot {
   complete: boolean;
   page: PageState;
   parts: SnapshotPart[];
+  // Only when JS and TS imports are judged.
+  jsImports?: JsImports;
   owned: { path: string; part: string; pattern: string }[];
   orphans: string[];
   contested: { path: string; parts: string[] }[];
   unwatched: string[];
   tasks: SnapshotTask[];
   diagnostics: (Diagnostic & { fix: string })[];
+}
+
+export interface JsImports {
+  files: number;
+  notResolved: number;
+  toCheck: number;
 }
 
 export interface SnapshotTask {
@@ -53,6 +61,7 @@ export function takeSnapshot(found: {
   diagnostics: Diagnostic[];
   tasks: PlanTask[];
   excluded: number;
+  jsImports: { files: number; notResolved: number } | null;
   pageState: PageState;
   fix: (code: string) => string;
 }): Snapshot {
@@ -80,6 +89,14 @@ export function takeSnapshot(found: {
       files: counts.get(p.id)!.files,
       lines: counts.get(p.id)!.lines,
     })),
+    ...(found.jsImports === null
+      ? {}
+      : {
+          jsImports: {
+            ...found.jsImports,
+            toCheck: found.diagnostics.filter((d) => d.code === "import-needs-check").length,
+          },
+        }),
     owned: [...m.owners]
       .filter(([path, part]) => part !== null && !contested.has(path))
       .map(([path, part]) => ({ path, part: part!, pattern: m.wonBy.get(path)! }))
@@ -117,7 +134,14 @@ export function readSnapshot(text: string): Snapshot {
   } catch {
     throw new Error("it is not JSON");
   }
-  return shapedSnapshot(value);
+  const snapshot = shapedSnapshot(value);
+  // history does not read jsImports, so only a base file is held to it.
+  const j: unknown = snapshot.jsImports;
+  const count = (v: unknown) => Number.isInteger(v) && (v as number) >= 0;
+  if ("jsImports" in snapshot && (!isObj(j) || !count(j.files) || !count(j.notResolved) || !count(j.toCheck))) {
+    throw new Error("its jsImports does not have the fields of a snapshot");
+  }
+  return snapshot;
 }
 
 // A parsed JSON value as a snapshot. Throws an Error that says what is wrong.
@@ -366,6 +390,14 @@ export function reportText(head: Snapshot, base: Snapshot | null): string {
   }
   if (head.tasks.length > 0) {
     blocks.push("### Tasks", ...table("| Task | Status | Files |", head.tasks.map((t) => taskRow(t))));
+  }
+  if (head.jsImports !== undefined) {
+    const j = head.jsImports;
+    const inBase = base?.jsImports === undefined ? "" : ` In the base: ${base.jsImports.files}, ${base.jsImports.notResolved}, ${base.jsImports.toCheck}.`;
+    blocks.push(
+      "### JS and TS imports",
+      `${j.files} files read, ${j.notResolved} import paths not resolved, ${j.toCheck} imports to check.${inBase}`,
+    );
   }
   if (base !== null) {
     const changed = changes(head, base);

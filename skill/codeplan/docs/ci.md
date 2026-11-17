@@ -63,6 +63,10 @@ check: ok
 | refunds | doing | 1 of 1 |
 | basket-total | done | 1 of 1 |
 
+### JS and TS imports
+
+4 files read, 0 import paths not resolved, 0 imports to check. In the base: 3, 0, 0.
+
 ### Changes
 
 | Part | Files | Lines | Change |
@@ -84,6 +88,7 @@ The blocks, in order; one that has nothing to say is left out:
 | `### Contested files` | Each contested file and the parts that own it equally. |
 | `### Unwatched files` | Code outside the watch set. |
 | `### Tasks` | A table of the tasks: id, status and `<n> of <m>`, the number of the task's `makes` paths that are files in the repository. Files is empty for a task with no `makes`. |
+| `### JS and TS imports` | When the JS and TS imports were read (the `js` language, every part counted, no contested file): the files read, the import paths that look relative or match a `paths` key and give no file, and the `import-needs-check` lines. With `--base`, the base's three numbers follow when the base has them. It does not change the status line. |
 | `### Changes` | Only with `--base`: a table of the parts whose counts changed, new parts and removed parts, then a table of the tasks that changed, new tasks and removed tasks. |
 | `### New directories` | Only with `--base`: directories that had no watched file in the base and whose files went to a part through a pattern that starts above the directory. |
 
@@ -133,6 +138,7 @@ they are.
 | `complete` | `false` when a part was left out of counting. |
 | `page` | `ok`, `outdated`, `missing`, `foreign` (something else is at the page place) or `not-checked` (no plan file, an error in it, or contested files). |
 | `parts` | The counted parts in plan file order, each with `id`, `paths`, `planned`, `files` and `lines`. |
+| `jsImports` | Only when the JS and TS imports were read (the `js` language, every part counted, no contested file): `files` (the JS and TS files read), `notResolved` (each file and import path that looks relative or matches a `paths` key and gives no file, once) and `toCheck` (the `import-needs-check` lines). A base without it is read; a base with it in another form is refused. |
 | `owned` | Each file counted in one part, with its `path`, `part` and the `pattern` that won it. |
 | `orphans` | The orphan files; empty when `complete` is `false`. |
 | `contested` | Each contested file with its `path` and `parts`. |
