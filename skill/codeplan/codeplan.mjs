@@ -3046,10 +3046,10 @@ function shapedSnapshot(value) {
   if (new Set(ids).size !== ids.length) throw new Error("two of its tasks have the same id");
   return value;
 }
-function list(items) {
-  const shown3 = items.slice(0, LIST_LIMIT).map((item) => `- ${item}`);
-  if (items.length > LIST_LIMIT) shown3.push(`- and ${items.length - LIST_LIMIT} more`);
-  return shown3.join("\n");
+function list(items, line) {
+  const lines = items.slice(0, LIST_LIMIT).map((item) => `- ${line(item)}`);
+  if (items.length > LIST_LIMIT) lines.push(`- and ${items.length - LIST_LIMIT} more`);
+  return lines.join("\n");
 }
 function statusLine(head) {
   const errors = head.diagnostics.filter((d) => d.severity === "error").length;
@@ -3084,9 +3084,9 @@ var configOf = ({ config }) => ({
   roots: config.roots,
   tests: config.tests
 });
-function table(head, rows) {
+function table(head, rows, row) {
   const columns = head.split("|").length - 2;
-  const blocks = [[head, `|${"---|".repeat(columns)}`, ...rows.slice(0, LIST_LIMIT)].join("\n")];
+  const blocks = [[head, `|${"---|".repeat(columns)}`, ...rows.slice(0, LIST_LIMIT).map(row)].join("\n")];
   if (rows.length > LIST_LIMIT) blocks.push(`And ${rows.length - LIST_LIMIT} more rows.`);
   return blocks;
 }
@@ -3139,16 +3139,15 @@ function changes(head, base) {
     const block = found.why === "no-plan" ? "No plan in the base, so there is nothing to compare." : `Measurement is incomplete in the ${found.why}, so changes are not shown.`;
     return { blocks: [block], rulesDiffer: false };
   }
-  const rows = found.parts.map((p2) => `| ${shown2(p2.id)} | ${p2.files} | ${p2.lines} | ${p2.change} |`);
-  const blocks = rows.length === 0 ? ["No part changed."] : table("| Part | Files | Lines | Change |", rows);
+  const blocks = found.parts.length === 0 ? ["No part changed."] : table("| Part | Files | Lines | Change |", found.parts, (p2) => `| ${shown2(p2.id)} | ${p2.files} | ${p2.lines} | ${p2.change} |`);
   if (found.rulesDiffer) {
     blocks.push("The config or part patterns changed, so some changes come from new rules, not new code.");
   }
   if (found.tasks === "invalid") {
     blocks.push("The plan has errors, so task changes are not shown.");
   } else if (found.tasks !== null) {
-    const taskRows = found.tasks.map(([id, ...cells]) => `| ${shown2(id)} | ${cells.join(" | ")} |`);
-    blocks.push(...taskRows.length === 0 ? ["No task changed."] : table("| Task | Status | Files | Change |", taskRows));
+    const row = ([id, ...cells]) => `| ${shown2(id)} | ${cells.join(" | ")} |`;
+    blocks.push(...found.tasks.length === 0 ? ["No task changed."] : table("| Task | Status | Files | Change |", found.tasks, row));
   }
   return { blocks, rulesDiffer: found.rulesDiffer };
 }
@@ -3170,7 +3169,7 @@ function newDirectories(head, base) {
     group.files++;
     groups.set(key, group);
   }
-  return [...groups.values()].sort((a, b) => byCodeUnit2(a.dir, b.dir) || byCodeUnit2(a.part, b.part) || byCodeUnit2(a.pattern, b.pattern)).map((g) => `${shown2(g.dir)}/: ${g.files} files went to part ${shown2(g.part)} through ${shown2(g.pattern)}`);
+  return [...groups.values()].sort((a, b) => byCodeUnit2(a.dir, b.dir) || byCodeUnit2(a.part, b.part) || byCodeUnit2(a.pattern, b.pattern));
 }
 function entryChanges(head, base) {
   let skipped = 0;
@@ -3184,12 +3183,13 @@ function entryChanges(head, base) {
   };
   const h = side(head);
   const b = side(base);
-  const only = (one, other) => [...one].filter(([k]) => !other.has(k)).map(([, e]) => `part ${shown2(e.part)} to ${shown2(e.to)}: ${shown2(e.evidence)}`);
+  const only = (one, other) => [...one].filter(([k]) => !other.has(k)).map(([, e]) => e);
+  const line = (e) => `part ${shown2(e.part)} to ${shown2(e.to)}: ${shown2(e.evidence)}`;
   const added = only(h, b);
   const gone = only(b, h);
   return [
-    ...added.length > 0 ? ["Reported in the head and not in the base:", list(added)] : [],
-    ...gone.length > 0 ? ["Reported in the base and not in the head:", list(gone)] : [],
+    ...added.length > 0 ? ["Reported in the head and not in the base:", list(added, line)] : [],
+    ...gone.length > 0 ? ["Reported in the base and not in the head:", list(gone, line)] : [],
     ...added.length + gone.length > 0 ? [] : ["No entry is newly reported or no longer reported. An entry whose finding changed is not listed."],
     "Entries are paired only when the part id, the `to` value and the evidence string are the same; writing any of them differently makes another entry. That an entry is no longer reported does not mean it was fixed.",
     ...skipped > 0 ? [`${skipped} entries were not compared: their part id or \`to\` value is not of the right form, or the same entry is written more than once.`] : []
@@ -3199,21 +3199,21 @@ function reportText(head, base) {
   const blocks = ["## codeplan", statusLine(head)];
   if (head.diagnostics.length > 0) {
     blocks.push("### Findings");
-    blocks.push(list(head.diagnostics.map((d) => `${shown2(d.at)}: ${d.code} [${d.severity}] ${shown2(d.message)}`)));
+    blocks.push(list(head.diagnostics, (d) => `${shown2(d.at)}: ${d.code} [${d.severity}] ${shown2(d.message)}`));
   }
   if (!head.complete) {
     blocks.push("Measurement is incomplete, so files in no part are not listed.");
   } else if (head.orphans.length > 0) {
-    blocks.push("### Files in no part", list(head.orphans.map(shown2)));
+    blocks.push("### Files in no part", list(head.orphans, shown2));
   }
   if (head.contested.length > 0) {
-    blocks.push("### Contested files", list(head.contested.map((c) => `${shown2(c.path)}: ${c.parts.map(shown2).join(", ")}`)));
+    blocks.push("### Contested files", list(head.contested, (c) => `${shown2(c.path)}: ${c.parts.map(shown2).join(", ")}`));
   }
   if (head.unwatched.length > 0) {
-    blocks.push("### Unwatched files", list(head.unwatched.map(shown2)));
+    blocks.push("### Unwatched files", list(head.unwatched, shown2));
   }
   if (head.tasks.length > 0) {
-    blocks.push("### Tasks", ...table("| Task | Status | Files |", head.tasks.map((t) => taskRow(t))));
+    blocks.push("### Tasks", ...table("| Task | Status | Files |", head.tasks, taskRow));
   }
   if (head.jsImports !== void 0) {
     const j = head.jsImports;
@@ -3244,7 +3244,7 @@ function reportText(head, base) {
     blocks.push("### Changes", ...changed.blocks);
     if (!changed.rulesDiffer && base.complete && head.complete) {
       const dirs = newDirectories(head, base);
-      if (dirs.length > 0) blocks.push("### New directories", list(dirs));
+      if (dirs.length > 0) blocks.push("### New directories", list(dirs, (g) => `${shown2(g.dir)}/: ${g.files} files went to part ${shown2(g.part)} through ${shown2(g.pattern)}`));
     }
   }
   return `${blocks.join("\n\n")}

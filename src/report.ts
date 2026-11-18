@@ -249,10 +249,11 @@ export function shapedSnapshot(value: unknown): Snapshot {
 }
 
 // A Markdown list of at most LIST_LIMIT items.
-function list(items: string[]): string {
-  const shown = items.slice(0, LIST_LIMIT).map((item) => `- ${item}`);
-  if (items.length > LIST_LIMIT) shown.push(`- and ${items.length - LIST_LIMIT} more`);
-  return shown.join("\n");
+// Only the items shown are written out.
+function list<T>(items: T[], line: (item: T) => string): string {
+  const lines = items.slice(0, LIST_LIMIT).map((item) => `- ${line(item)}`);
+  if (items.length > LIST_LIMIT) lines.push(`- and ${items.length - LIST_LIMIT} more`);
+  return lines.join("\n");
 }
 
 export function statusLine(head: Snapshot): string {
@@ -295,9 +296,9 @@ export const configOf = ({ config }: Snapshot) => ({
 });
 
 // A table of at most LIST_LIMIT data rows, then how many rows were left out.
-function table(head: string, rows: string[]): string[] {
+function table<T>(head: string, rows: T[], row: (item: T) => string): string[] {
   const columns = head.split("|").length - 2;
-  const blocks = [[head, `|${"---|".repeat(columns)}`, ...rows.slice(0, LIST_LIMIT)].join("\n")];
+  const blocks = [[head, `|${"---|".repeat(columns)}`, ...rows.slice(0, LIST_LIMIT).map(row)].join("\n")];
   if (rows.length > LIST_LIMIT) blocks.push(`And ${rows.length - LIST_LIMIT} more rows.`);
   return blocks;
 }
@@ -388,26 +389,25 @@ function changes(head: Snapshot, base: Snapshot): { blocks: string[]; rulesDiffe
         : `Measurement is incomplete in the ${found.why}, so changes are not shown.`;
     return { blocks: [block], rulesDiffer: false };
   }
-  const rows = found.parts.map((p) => `| ${shown(p.id)} | ${p.files} | ${p.lines} | ${p.change} |`);
   const blocks =
-    rows.length === 0
+    found.parts.length === 0
       ? ["No part changed."]
-      : table("| Part | Files | Lines | Change |", rows);
+      : table("| Part | Files | Lines | Change |", found.parts, (p) => `| ${shown(p.id)} | ${p.files} | ${p.lines} | ${p.change} |`);
   if (found.rulesDiffer) {
     blocks.push("The config or part patterns changed, so some changes come from new rules, not new code.");
   }
   if (found.tasks === "invalid") {
     blocks.push("The plan has errors, so task changes are not shown.");
   } else if (found.tasks !== null) {
-    const taskRows = found.tasks.map(([id, ...cells]) => `| ${shown(id!)} | ${cells.join(" | ")} |`);
-    blocks.push(...(taskRows.length === 0 ? ["No task changed."] : table("| Task | Status | Files | Change |", taskRows)));
+    const row = ([id, ...cells]: string[]) => `| ${shown(id!)} | ${cells.join(" | ")} |`;
+    blocks.push(...(found.tasks.length === 0 ? ["No task changed."] : table("| Task | Status | Files | Change |", found.tasks, row)));
   }
   return { blocks, rulesDiffer: found.rulesDiffer };
 }
 
 // Files that a wide pattern took into a part from a directory the base had
 // no watched file in.
-function newDirectories(head: Snapshot, base: Snapshot): string[] {
+function newDirectories(head: Snapshot, base: Snapshot) {
   const dirOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf("/")));
   const baseDirs = new Set(
     [...base.owned.map((o) => o.path), ...base.orphans, ...base.contested.map((c) => c.path)].map(dirOf),
@@ -426,8 +426,7 @@ function newDirectories(head: Snapshot, base: Snapshot): string[] {
     groups.set(key, group);
   }
   return [...groups.values()]
-    .sort((a, b) => byCodeUnit(a.dir, b.dir) || byCodeUnit(a.part, b.part) || byCodeUnit(a.pattern, b.pattern))
-    .map((g) => `${shown(g.dir)}/: ${g.files} files went to part ${shown(g.part)} through ${shown(g.pattern)}`);
+    .sort((a, b) => byCodeUnit(a.dir, b.dir) || byCodeUnit(a.part, b.part) || byCodeUnit(a.pattern, b.pattern));
 }
 
 // The findings of evidence entries with a stamp, reported on one side only.
@@ -446,12 +445,13 @@ function entryChanges(head: Snapshot, base: Snapshot): string[] {
   const h = side(head);
   const b = side(base);
   const only = (one: typeof h, other: typeof h) =>
-    [...one].filter(([k]) => !other.has(k)).map(([, e]) => `part ${shown(e.part)} to ${shown(e.to)}: ${shown(e.evidence)}`);
+    [...one].filter(([k]) => !other.has(k)).map(([, e]) => e);
+  const line = (e: Entry) => `part ${shown(e.part)} to ${shown(e.to)}: ${shown(e.evidence)}`;
   const added = only(h, b);
   const gone = only(b, h);
   return [
-    ...(added.length > 0 ? ["Reported in the head and not in the base:", list(added)] : []),
-    ...(gone.length > 0 ? ["Reported in the base and not in the head:", list(gone)] : []),
+    ...(added.length > 0 ? ["Reported in the head and not in the base:", list(added, line)] : []),
+    ...(gone.length > 0 ? ["Reported in the base and not in the head:", list(gone, line)] : []),
     ...(added.length + gone.length > 0
       ? []
       : ["No entry is newly reported or no longer reported. An entry whose finding changed is not listed."]),
@@ -467,21 +467,21 @@ export function reportText(head: Snapshot, base: Snapshot | null): string {
   const blocks = ["## codeplan", statusLine(head)];
   if (head.diagnostics.length > 0) {
     blocks.push("### Findings");
-    blocks.push(list(head.diagnostics.map((d) => `${shown(d.at)}: ${d.code} [${d.severity}] ${shown(d.message)}`)));
+    blocks.push(list(head.diagnostics, (d) => `${shown(d.at)}: ${d.code} [${d.severity}] ${shown(d.message)}`));
   }
   if (!head.complete) {
     blocks.push("Measurement is incomplete, so files in no part are not listed.");
   } else if (head.orphans.length > 0) {
-    blocks.push("### Files in no part", list(head.orphans.map(shown)));
+    blocks.push("### Files in no part", list(head.orphans, shown));
   }
   if (head.contested.length > 0) {
-    blocks.push("### Contested files", list(head.contested.map((c) => `${shown(c.path)}: ${c.parts.map(shown).join(", ")}`)));
+    blocks.push("### Contested files", list(head.contested, (c) => `${shown(c.path)}: ${c.parts.map(shown).join(", ")}`));
   }
   if (head.unwatched.length > 0) {
-    blocks.push("### Unwatched files", list(head.unwatched.map(shown)));
+    blocks.push("### Unwatched files", list(head.unwatched, shown));
   }
   if (head.tasks.length > 0) {
-    blocks.push("### Tasks", ...table("| Task | Status | Files |", head.tasks.map((t) => taskRow(t))));
+    blocks.push("### Tasks", ...table("| Task | Status | Files |", head.tasks, taskRow));
   }
   if (head.jsImports !== undefined) {
     const j = head.jsImports;
@@ -514,7 +514,7 @@ export function reportText(head: Snapshot, base: Snapshot | null): string {
     blocks.push("### Changes", ...changed.blocks);
     if (!changed.rulesDiffer && base.complete && head.complete) {
       const dirs = newDirectories(head, base);
-      if (dirs.length > 0) blocks.push("### New directories", list(dirs));
+      if (dirs.length > 0) blocks.push("### New directories", list(dirs, (g) => `${shown(g.dir)}/: ${g.files} files went to part ${shown(g.part)} through ${shown(g.pattern)}`));
     }
   }
   return `${blocks.join("\n\n")}\n`;
