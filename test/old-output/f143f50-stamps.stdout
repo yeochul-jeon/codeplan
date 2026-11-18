@@ -1,0 +1,6 @@
+{"at":"parts[0].uses[0].evidence[0]","part":"a","to":"b","evidence":"f.ts:1#2d711642","state":"same","line":1,"stamp":"2d711642"}
+{"at":"parts[0].uses[0].evidence[1]","part":"a","to":"b","evidence":"f.ts:1#a1fce436","state":"elsewhere","line":2,"stamp":"a1fce436"}
+{"at":"parts[0].uses[0].evidence[2]","part":"a","to":"b","evidence":"f.ts:1#8e35c2cd","state":"differs","line":1,"stamp":"2d711642"}
+{"at":"parts[0].uses[0].evidence[3]","part":"a","to":"b","evidence":"f.ts:9#8e35c2cd","state":"no-line","line":null,"stamp":null}
+{"at":"parts[0].uses[0].evidence[4]","part":"a","to":"b","evidence":"g.ts:1#8e35c2cd","state":"no-file","line":null,"stamp":null}
+{"at":"parts[0].uses[0].evidence[5]","part":"a","to":"b","evidence":"f.ts:9","state":"no-line","line":null,"stamp":null}

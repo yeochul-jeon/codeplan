@@ -348,25 +348,19 @@ describe("report: not compared", () => {
 });
 
 describe("what stays as in f143f50", () => {
-  // The bundle before this release, from git.
-  const shown = spawnSync("git", ["show", "f143f50:skill/codeplan/codeplan.mjs"], { encoding: "utf8", maxBuffer: 1 << 24 });
-  const oldBundle = () => {
-    const file = join(tempDir(), "old.mjs");
-    writeFileSync(file, shown.stdout);
-    return file;
-  };
+  // What the bundle of f143f50 (the bundle before this release) printed for these inputs.
+  const oldOutput = (name: string) => readFileSync(join(import.meta.dirname, "old-output", name), "utf8");
   const bundle = join(import.meta.dirname, "..", "skill/codeplan/codeplan.mjs");
-  const ran = (file: string, args: string[], cwd: string) => spawnSync(process.execPath, [file, ...args], { cwd, encoding: "utf8" });
+  const ran = (args: string[], cwd: string) => spawnSync(process.execPath, [bundle, ...args], { cwd, encoding: "utf8" });
 
   test("check, stamps, and report without its stamp block, with entries with a stamp", () => {
     const repo = withUses([use("b", [SAME, ELSEWHERE, DIFFERS, NO_LINE, NO_FILE, "f.ts:9"])]);
-    const old = oldBundle();
-    for (const args of [["check"], ["stamps"]]) {
-      const [a, b] = [ran(old, args, repo), ran(bundle, args, repo)];
-      expect([b.status, b.stdout, b.stderr]).toEqual([a.status, a.stdout, a.stderr]);
-    }
-    const before = ran(old, ["report"], repo).stdout;
-    const now = ran(bundle, ["report"], repo).stdout;
+    const check = ran(["check"], repo);
+    expect([check.status, check.stdout, check.stderr]).toEqual([1, oldOutput("f143f50-check.stdout"), oldOutput("f143f50-check.stderr")]);
+    const stamps = ran(["stamps"], repo);
+    expect([stamps.status, stamps.stdout, stamps.stderr]).toEqual([0, oldOutput("f143f50-stamps.stdout"), ""]);
+    const before = oldOutput("f143f50-report.stdout");
+    const now = ran(["report"], repo).stdout;
     expect(now.replace(/\n### Evidence entries with a stamp\n\n[^\n]*\n/, "")).toBe(before);
   });
 
@@ -391,11 +385,11 @@ describe("what stays as in f143f50", () => {
     expect(fived.diagnostics.some((d: Item) => d.entry === 5)).toBe(true);
     expect(historyOf(fived)).toEqual(expected);
     // And as the bundle of f143f50 prints it.
-    const old = oldBundle();
     const dir = tempDir();
     writeFileSync(join(dir, "r1.json"), JSON.stringify(record));
     writeFileSync(join(dir, "r2.json"), JSON.stringify({ ...record, stampEntries: 5 }));
-    expect(ran(bundle, ["history", dir], dir).stdout).toBe(ran(old, ["history", dir], dir).stdout);
+    const page = ran(["history", dir], dir).stdout;
+    expect(createHash("sha256").update(page).digest("hex")).toBe("dcbd7fbc777664a56dc5767fbe9d6472cd231b69671c29d93522f82ba1ba2a25");
     expect(readFileSync(join(dir, "r1.json"), "utf8")).toBe(JSON.stringify(record));
   });
 });

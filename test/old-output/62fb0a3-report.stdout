@@ -1,0 +1,20 @@
+## codeplan
+
+check: fails (2 orphan files, page missing)
+
+### Findings
+
+- parts\[0\].uses\[0\].evidence\[0\]: evidence-stamp-differs [info] part "a": the line of evidence "f.ts:1\#8e35c2cd" does not have its stamp
+
+### Files in no part
+
+- f.ts
+- o.ts
+
+### JS and TS imports
+
+3 files read, 0 import paths not resolved, 0 imports to check.
+
+### Evidence entries with a stamp
+
+1 evidence entries with a stamp, 0 with the stamp on one other line, 1 without the stamp on the written line, 0 with no such line, 0 with no such file.

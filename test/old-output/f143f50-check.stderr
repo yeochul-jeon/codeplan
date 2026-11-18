@@ -1,0 +1,14 @@
+orphan files: no part owns them (1)
+  fix: add a pattern to a part's paths in docs/codeplan/plan.json, or list them under skip in codeplan.json
+  f.ts
+page outdated: docs/codeplan/codeplan.html differs from the page update would write now
+  fix: run update
+parts[0].uses[0].evidence[1]: evidence-stamp-elsewhere [info] part "a": one other line of the file has the stamp of evidence "f.ts:1#a1fce436"
+parts[0].uses[0].evidence[2]: evidence-stamp-differs [info] part "a": the line of evidence "f.ts:1#8e35c2cd" does not have its stamp
+parts[0].uses[0].evidence[3]: evidence-no-line [info] part "a": the file of evidence "f.ts:9#8e35c2cd" does not have that line
+parts[0].uses[0].evidence[4]: evidence-no-file [info] part "a": the file of evidence "g.ts:1#8e35c2cd" is not a file in the repository
+parts[0].uses[0].evidence[5]: evidence-no-line [info] part "a": the file of evidence "f.ts:9" does not have that line
+  fix: evidence-stamp-elsewhere: read the line the stamps command gives and write its number only if it still shows the use; the same stamp only means the same text
+  fix: evidence-stamp-differs: read the line: if it still shows the use, write the stamp the stamps command gives; if not, write another line, remove the evidence or correct the use
+  fix: evidence-no-line: write the line that shows the use as the file is now, or remove the evidence
+  fix: evidence-no-file: write the path of a file that is in the repository, or remove the evidence

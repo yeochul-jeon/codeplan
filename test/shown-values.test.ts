@@ -2,7 +2,7 @@
 // of one value, and the row limit of the part table.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "vitest";
 import { run } from "../src/cli.js";
@@ -235,22 +235,21 @@ test("two evidence strings with the same first 300 characters are two entries an
 });
 
 describe("what stays as in 62fb0a3", () => {
-  const old = spawnSync("git", ["show", "62fb0a3:skill/codeplan/codeplan.mjs"], { encoding: "utf8", maxBuffer: 1 << 24 });
+  // What the bundle of 62fb0a3 printed for these inputs.
+  const oldOutput = (name: string) => readFileSync(join(import.meta.dirname, "old-output", name), "utf8");
   const bundle = join(import.meta.dirname, "..", "skill/codeplan/codeplan.mjs");
-  const ran = (file: string, args: string[], cwd: string) => spawnSync(process.execPath, [file, ...args], { cwd, encoding: "utf8" });
+  const ran = (args: string[], cwd: string) => spawnSync(process.execPath, [bundle, ...args], { cwd, encoding: "utf8" });
 
   test("report and report --base on values with no control character, none longer than 300", () => {
-    const oldFile = join(tempDir(), "old.mjs");
-    writeFileSync(oldFile, old.stdout);
     const repo = repoOf();
     const baseFile = join(tempDir(), "base.json");
     writeFileSync(baseFile, JSON.stringify(snap(repo)));
     mkdirSync(join(repo, "src/new"));
     writeFileSync(join(repo, "src/new/c.ts"), "x\n");
     writeFileSync(join(repo, "o.ts"), "x\n");
-    for (const args of [["report"], ["report", "--base", baseFile]]) {
-      const [a, b] = [ran(oldFile, args, repo), ran(bundle, args, repo)];
-      expect([b.status, b.stdout, b.stderr]).toEqual([a.status, a.stdout, a.stderr]);
+    for (const [args, name] of [[["report"], "62fb0a3-report.stdout"], [["report", "--base", baseFile], "62fb0a3-report-base.stdout"]] as const) {
+      const b = ran([...args], repo);
+      expect([b.status, b.stdout, b.stderr]).toEqual([0, oldOutput(name), ""]);
     }
   });
 });
