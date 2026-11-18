@@ -2933,6 +2933,11 @@ var RULES = 1;
 var LIST_LIMIT = 30;
 var STAMP_CODES = ["stamp-elsewhere", "stamp-differs", "no-line", "no-file"].map((c) => `evidence-${c}`);
 var COUNT_KEYS = ["entries", "elsewhere", "differs", "noLine", "noFile"];
+var shown2 = (text) => {
+  const points = [...text.replace(/\r\n|\n|\r/g, " ").replace(/[\p{Cc}\p{Cf}]/gu, "\uFFFD")];
+  const more = points.length - 300;
+  return plain(points.slice(0, 300).join("")) + (more > 0 ? ` (${more} more characters)` : "");
+};
 var entryKey = (e) => JSON.stringify([e.part, e.to, e.evidence]);
 function tallyKeys(keys) {
   const n = /* @__PURE__ */ new Map();
@@ -3042,9 +3047,9 @@ function shapedSnapshot(value) {
   return value;
 }
 function list(items) {
-  const shown2 = items.slice(0, LIST_LIMIT).map((item) => `- ${item}`);
-  if (items.length > LIST_LIMIT) shown2.push(`- and ${items.length - LIST_LIMIT} more`);
-  return shown2.join("\n");
+  const shown3 = items.slice(0, LIST_LIMIT).map((item) => `- ${item}`);
+  if (items.length > LIST_LIMIT) shown3.push(`- and ${items.length - LIST_LIMIT} more`);
+  return shown3.join("\n");
 }
 function statusLine(head) {
   const errors = head.diagnostics.filter((d) => d.severity === "error").length;
@@ -3085,7 +3090,7 @@ function table(head, rows) {
   if (rows.length > LIST_LIMIT) blocks.push(`And ${rows.length - LIST_LIMIT} more rows.`);
   return blocks;
 }
-var taskRow = (t) => `| ${plain(t.id)} | ${t.status ?? ""} | ${filesCell(t)} |`;
+var taskRow = (t) => `| ${shown2(t.id)} | ${t.status ?? ""} | ${filesCell(t)} |`;
 function taskChanges(head, base) {
   const before = new Map(base.tasks.map((t) => [t.id, t]));
   const after = new Set(head.tasks.map((t) => t.id));
@@ -3134,15 +3139,15 @@ function changes(head, base) {
     const block = found.why === "no-plan" ? "No plan in the base, so there is nothing to compare." : `Measurement is incomplete in the ${found.why}, so changes are not shown.`;
     return { blocks: [block], rulesDiffer: false };
   }
-  const rows = found.parts.map((p2) => `| ${p2.id} | ${p2.files} | ${p2.lines} | ${p2.change} |`);
-  const blocks = rows.length === 0 ? ["No part changed."] : [["| Part | Files | Lines | Change |", "|---|---|---|---|", ...rows].join("\n")];
+  const rows = found.parts.map((p2) => `| ${shown2(p2.id)} | ${p2.files} | ${p2.lines} | ${p2.change} |`);
+  const blocks = rows.length === 0 ? ["No part changed."] : table("| Part | Files | Lines | Change |", rows);
   if (found.rulesDiffer) {
     blocks.push("The config or part patterns changed, so some changes come from new rules, not new code.");
   }
   if (found.tasks === "invalid") {
     blocks.push("The plan has errors, so task changes are not shown.");
   } else if (found.tasks !== null) {
-    const taskRows = found.tasks.map(([id, ...cells]) => `| ${plain(id)} | ${cells.join(" | ")} |`);
+    const taskRows = found.tasks.map(([id, ...cells]) => `| ${shown2(id)} | ${cells.join(" | ")} |`);
     blocks.push(...taskRows.length === 0 ? ["No task changed."] : table("| Task | Status | Files | Change |", taskRows));
   }
   return { blocks, rulesDiffer: found.rulesDiffer };
@@ -3165,7 +3170,7 @@ function newDirectories(head, base) {
     group.files++;
     groups.set(key, group);
   }
-  return [...groups.values()].sort((a, b) => byCodeUnit2(a.dir, b.dir) || byCodeUnit2(a.part, b.part) || byCodeUnit2(a.pattern, b.pattern)).map((g) => `${plain(g.dir)}/: ${g.files} files went to part ${g.part} through ${plain(g.pattern)}`);
+  return [...groups.values()].sort((a, b) => byCodeUnit2(a.dir, b.dir) || byCodeUnit2(a.part, b.part) || byCodeUnit2(a.pattern, b.pattern)).map((g) => `${shown2(g.dir)}/: ${g.files} files went to part ${shown2(g.part)} through ${shown2(g.pattern)}`);
 }
 function entryChanges(head, base) {
   let skipped = 0;
@@ -3179,7 +3184,7 @@ function entryChanges(head, base) {
   };
   const h = side(head);
   const b = side(base);
-  const only = (one, other) => [...one].filter(([k]) => !other.has(k)).map(([, e]) => `part ${plain(e.part)} to ${plain(e.to)}: ${plain(e.evidence)}`);
+  const only = (one, other) => [...one].filter(([k]) => !other.has(k)).map(([, e]) => `part ${shown2(e.part)} to ${shown2(e.to)}: ${shown2(e.evidence)}`);
   const added = only(h, b);
   const gone = only(b, h);
   return [
@@ -3194,18 +3199,18 @@ function reportText(head, base) {
   const blocks = ["## codeplan", statusLine(head)];
   if (head.diagnostics.length > 0) {
     blocks.push("### Findings");
-    blocks.push(list(head.diagnostics.map((d) => `${plain(d.at)}: ${d.code} [${d.severity}] ${plain(d.message)}`)));
+    blocks.push(list(head.diagnostics.map((d) => `${shown2(d.at)}: ${d.code} [${d.severity}] ${shown2(d.message)}`)));
   }
   if (!head.complete) {
     blocks.push("Measurement is incomplete, so files in no part are not listed.");
   } else if (head.orphans.length > 0) {
-    blocks.push("### Files in no part", list(head.orphans.map(plain)));
+    blocks.push("### Files in no part", list(head.orphans.map(shown2)));
   }
   if (head.contested.length > 0) {
-    blocks.push("### Contested files", list(head.contested.map((c) => `${plain(c.path)}: ${c.parts.join(", ")}`)));
+    blocks.push("### Contested files", list(head.contested.map((c) => `${shown2(c.path)}: ${c.parts.map(shown2).join(", ")}`)));
   }
   if (head.unwatched.length > 0) {
-    blocks.push("### Unwatched files", list(head.unwatched.map(plain)));
+    blocks.push("### Unwatched files", list(head.unwatched.map(shown2)));
   }
   if (head.tasks.length > 0) {
     blocks.push("### Tasks", ...table("| Task | Status | Files |", head.tasks.map((t) => taskRow(t))));
@@ -3389,8 +3394,8 @@ function runs(items) {
   return found.map((r) => ({ key: r.key, span: r.first === r.last ? `in ${r.first}` : `from ${r.first} to ${r.last}` }));
 }
 function listed(items) {
-  const shown2 = items.slice(0, LIST_LIMIT).join(", ");
-  return items.length > LIST_LIMIT ? `${shown2}, and ${items.length - LIST_LIMIT} more.` : `${shown2}.`;
+  const shown3 = items.slice(0, LIST_LIMIT).join(", ");
+  return items.length > LIST_LIMIT ? `${shown3}, and ${items.length - LIST_LIMIT} more.` : `${shown3}.`;
 }
 var PAGE_WAS = {
   outdated: "outdated",
@@ -4452,14 +4457,14 @@ function summary(repo, mermaid) {
 }
 function listSection(title, fix, items) {
   if (items.length === 0) return "";
-  const shown2 = items.slice(0, LIST_LIMIT2).map((i) => `  ${i}
+  const shown3 = items.slice(0, LIST_LIMIT2).map((i) => `  ${i}
 `);
   const rest = items.length - LIST_LIMIT2;
   const more = rest > 0 ? `  ... and ${rest} more
 ` : "";
   return `${title} (${items.length})
   fix: ${fix}
-${shown2.join("")}${more}`;
+${shown3.join("")}${more}`;
 }
 function checkReport(result2, noPage) {
   const { config, measurement: m, diagnostics, excluded } = result2;

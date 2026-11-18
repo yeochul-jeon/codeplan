@@ -61,6 +61,13 @@ export interface StampEntries {
 // counts after `entries`.
 const STAMP_CODES = ["stamp-elsewhere", "stamp-differs", "no-line", "no-file"].map((c) => `evidence-${c}`);
 const COUNT_KEYS = ["entries", "elsewhere", "differs", "noLine", "noFile"] as const;
+// A value of a snapshot as the report shows it: on one line, control and
+// format characters as U+FFFD, at most 300 code points, written for Markdown.
+const shown = (text: string) => {
+  const points = [...text.replace(/\r\n|\n|\r/g, " ").replace(/[\p{Cc}\p{Cf}]/gu, "\ufffd")];
+  const more = points.length - 300;
+  return plain(points.slice(0, 300).join("")) + (more > 0 ? ` (${more} more characters)` : "");
+};
 const entryKey = (e: { part: string | null; to: string | null; evidence: string }) => JSON.stringify([e.part, e.to, e.evidence]);
 // How many times each key is there.
 function tallyKeys(keys: string[]): Map<string, number> {
@@ -295,7 +302,7 @@ function table(head: string, rows: string[]): string[] {
   return blocks;
 }
 
-const taskRow = (t: SnapshotTask) => `| ${plain(t.id)} | ${t.status ?? ""} | ${filesCell(t)} |`;
+const taskRow = (t: SnapshotTask) => `| ${shown(t.id)} | ${t.status ?? ""} | ${filesCell(t)} |`;
 
 // The tasks that are new, changed or removed between base and head: for
 // each, the cells Task, Status, Files and Change as they are, not yet
@@ -381,18 +388,18 @@ function changes(head: Snapshot, base: Snapshot): { blocks: string[]; rulesDiffe
         : `Measurement is incomplete in the ${found.why}, so changes are not shown.`;
     return { blocks: [block], rulesDiffer: false };
   }
-  const rows = found.parts.map((p) => `| ${p.id} | ${p.files} | ${p.lines} | ${p.change} |`);
+  const rows = found.parts.map((p) => `| ${shown(p.id)} | ${p.files} | ${p.lines} | ${p.change} |`);
   const blocks =
     rows.length === 0
       ? ["No part changed."]
-      : [["| Part | Files | Lines | Change |", "|---|---|---|---|", ...rows].join("\n")];
+      : table("| Part | Files | Lines | Change |", rows);
   if (found.rulesDiffer) {
     blocks.push("The config or part patterns changed, so some changes come from new rules, not new code.");
   }
   if (found.tasks === "invalid") {
     blocks.push("The plan has errors, so task changes are not shown.");
   } else if (found.tasks !== null) {
-    const taskRows = found.tasks.map(([id, ...cells]) => `| ${plain(id!)} | ${cells.join(" | ")} |`);
+    const taskRows = found.tasks.map(([id, ...cells]) => `| ${shown(id!)} | ${cells.join(" | ")} |`);
     blocks.push(...(taskRows.length === 0 ? ["No task changed."] : table("| Task | Status | Files | Change |", taskRows)));
   }
   return { blocks, rulesDiffer: found.rulesDiffer };
@@ -420,7 +427,7 @@ function newDirectories(head: Snapshot, base: Snapshot): string[] {
   }
   return [...groups.values()]
     .sort((a, b) => byCodeUnit(a.dir, b.dir) || byCodeUnit(a.part, b.part) || byCodeUnit(a.pattern, b.pattern))
-    .map((g) => `${plain(g.dir)}/: ${g.files} files went to part ${g.part} through ${plain(g.pattern)}`);
+    .map((g) => `${shown(g.dir)}/: ${g.files} files went to part ${shown(g.part)} through ${shown(g.pattern)}`);
 }
 
 // The findings of evidence entries with a stamp, reported on one side only.
@@ -439,7 +446,7 @@ function entryChanges(head: Snapshot, base: Snapshot): string[] {
   const h = side(head);
   const b = side(base);
   const only = (one: typeof h, other: typeof h) =>
-    [...one].filter(([k]) => !other.has(k)).map(([, e]) => `part ${plain(e.part)} to ${plain(e.to)}: ${plain(e.evidence)}`);
+    [...one].filter(([k]) => !other.has(k)).map(([, e]) => `part ${shown(e.part)} to ${shown(e.to)}: ${shown(e.evidence)}`);
   const added = only(h, b);
   const gone = only(b, h);
   return [
@@ -460,18 +467,18 @@ export function reportText(head: Snapshot, base: Snapshot | null): string {
   const blocks = ["## codeplan", statusLine(head)];
   if (head.diagnostics.length > 0) {
     blocks.push("### Findings");
-    blocks.push(list(head.diagnostics.map((d) => `${plain(d.at)}: ${d.code} [${d.severity}] ${plain(d.message)}`)));
+    blocks.push(list(head.diagnostics.map((d) => `${shown(d.at)}: ${d.code} [${d.severity}] ${shown(d.message)}`)));
   }
   if (!head.complete) {
     blocks.push("Measurement is incomplete, so files in no part are not listed.");
   } else if (head.orphans.length > 0) {
-    blocks.push("### Files in no part", list(head.orphans.map(plain)));
+    blocks.push("### Files in no part", list(head.orphans.map(shown)));
   }
   if (head.contested.length > 0) {
-    blocks.push("### Contested files", list(head.contested.map((c) => `${plain(c.path)}: ${c.parts.join(", ")}`)));
+    blocks.push("### Contested files", list(head.contested.map((c) => `${shown(c.path)}: ${c.parts.map(shown).join(", ")}`)));
   }
   if (head.unwatched.length > 0) {
-    blocks.push("### Unwatched files", list(head.unwatched.map(plain)));
+    blocks.push("### Unwatched files", list(head.unwatched.map(shown)));
   }
   if (head.tasks.length > 0) {
     blocks.push("### Tasks", ...table("| Task | Status | Files |", head.tasks.map((t) => taskRow(t))));

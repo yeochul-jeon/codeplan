@@ -104,6 +104,13 @@ The blocks, in order; one that has nothing to say is left out:
 A list shows 30 items and then the number of the rest. A table of tasks
 shows 30 rows and then a sentence with the number of the rest.
 
+A value from a snapshot (a path, an id, a message, a pattern, an evidence
+entry) shows at most 300 characters, then the number of characters left out,
+as in `(12 more characters)`. Control and format characters show as U+FFFD,
+the tab and the character that joins emoji included. The table of parts also
+shows 30 rows and then a sentence with the number of the rest. Matching,
+sorting and counting use the values as written, not as shown.
+
 In the Changes table, parts are matched by id: a part whose id changed is
 one `new` row and one `removed` row. A planned part that now has files is
 marked `planned, has code`. When the config or the `paths` of a part differ
