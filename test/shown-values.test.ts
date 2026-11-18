@@ -254,3 +254,35 @@ describe("what stays as in 62fb0a3", () => {
     }
   });
 });
+
+// Each place where report puts a value of a snapshot: the value has ESC and
+// 302 code points, so the line differs if that place skips the rules.
+test("each place shows its value with the rules", () => {
+  const value = (tag: string) => `${tag}${ESC}${"x".repeat(300)}`;
+  const seen = (v: string) => {
+    const points = [...v.replace(ESC, FFFD)];
+    return points.length > 300 ? `${points.slice(0, 300).join("")} (${points.length - 300} more characters)` : v;
+  };
+  const head = snap(repoOf());
+  const dir = `d${ESC}${"x".repeat(299)}/n`;
+  const pattern = `d${ESC}${"x".repeat(299)}/**`;
+  const part8 = value("p");
+  head.parts.push({ id: part8, paths: [pattern], planned: false, files: 1, lines: 1 });
+  const base = structuredClone(head);
+  const d0 = head.diagnostics[0];
+  head.diagnostics = [
+    { ...d0, at: value("a"), message: value("m") },
+    { ...head.diagnostics.find((d: Item) => "entry" in d), entry: { part: value("e"), to: value("t"), evidence: "ev" } },
+  ];
+  head.contested = [{ path: value("c"), parts: [value("i")] }];
+  head.tasks = [{ id: value("k"), status: null, makes: [], missing: [] }];
+  head.owned.push({ path: `${dir}/f.ts`, part: part8, pattern });
+  const out = reportText(head as Snapshot, base as Snapshot);
+  const lines = out.split("\n");
+  expect(out.includes(ESC)).toBe(false);
+  expect(lines).toContain(`- ${seen(value("a"))}: ${d0.code} [${d0.severity}] ${seen(value("m"))}`);
+  expect(lines).toContain(`- ${seen(value("c"))}: ${seen(value("i"))}`);
+  expect(lines).toContain(`| ${seen(value("k"))} |  |  |`);
+  expect(lines).toContain(`- part ${seen(value("e"))} to ${seen(value("t"))}: ev`);
+  expect(lines).toContain(`- ${seen(dir)}/: 1 files went to part ${seen(part8)} through ${seen(pattern)}`);
+});
