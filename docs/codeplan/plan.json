@@ -1,0 +1,223 @@
+{
+  "format": 1,
+  "name": "codeplan",
+  "about": "A command line tool that keeps a plan of a repository beside its code. {cli} runs each command with {settings}, {plan-check}, {counting} and {imports}, and writes its results through {page} and {reports}. {scripts} bundles the sources into {skill-codeplan}.",
+  "parts": [
+    {
+      "id": "cli",
+      "name": "Commands",
+      "zone": "src",
+      "about": "The entry point and the commands: it reads the arguments, runs check, update, draft, summary, snapshot, report, history and stamps, and turns each result into standard output, standard error and an exit code. It is the only part that calls every other part under src.",
+      "start": "src/cli.ts",
+      "paths": ["src/bin.ts", "src/cli.ts", "src/index.ts"],
+      "uses": [
+        { "to": "settings", "why": "to read codeplan.json", "evidence": ["src/cli.ts:268#cbd0e4f2"] },
+        { "to": "draft", "why": "to run the draft command", "evidence": ["src/cli.ts:667#3cdd9f28"] },
+        {
+          "to": "reports",
+          "why": "to print summary, snapshot, report and history",
+          "evidence": ["src/cli.ts:527#a592687b", "src/cli.ts:487#821d5613", "src/cli.ts:517#b45b644d"]
+        },
+        {
+          "to": "imports",
+          "why": "to find which part imports which",
+          "evidence": ["src/cli.ts:193#f9c6f719", "src/cli.ts:218#1ccb8be9"]
+        },
+        { "to": "counting", "why": "to count the files and lines of each part", "evidence": ["src/cli.ts:184#4dd09b32"] },
+        {
+          "to": "plan-check",
+          "why": "to read plan.json, get its findings and judge evidence stamps",
+          "evidence": ["src/cli.ts:273#3542d986", "src/cli.ts:183#ad17b0f8", "src/cli.ts:194#b95b3c49", "src/cli.ts:256#2f415136"]
+        },
+        {
+          "to": "page",
+          "why": "to make the page that update writes and check compares",
+          "evidence": ["src/cli.ts:319#8555f75a", "src/cli.ts:320#d1ce29f5", "src/cli.ts:337#6a63ffcc"]
+        }
+      ]
+    },
+    {
+      "id": "settings",
+      "name": "Config and globs",
+      "zone": "src",
+      "about": "Reads and checks codeplan.json, holds the rules of each language, and compiles glob patterns with their strength. It imports no other part; {counting}, {plan-check}, {draft} and {reports} use it as well as {cli}.",
+      "start": "src/config.ts",
+      "paths": ["src/config.ts", "src/glob.ts"]
+    },
+    {
+      "id": "counting",
+      "name": "Watch set and ownership",
+      "zone": "src",
+      "about": "Decides which files are watched and which part owns each one, and counts files and lines. It reads every watched file once and keeps what {imports} needs from it. {plan-check}, {draft}, {page} and {reports} use its byCodeUnit sort order.",
+      "start": "src/measure.ts",
+      "paths": ["src/measure.ts", "src/lines.ts"],
+      "uses": [
+        {
+          "to": "settings",
+          "why": "for the language rules and to compile the patterns of parts",
+          "evidence": ["src/measure.ts:85#bf3e0dc6", "src/measure.ts:208#18fea5be"]
+        },
+        {
+          "to": "imports",
+          "why": "to read the package and import lines of a .java file, and to know which JS and TS files to keep",
+          "evidence": ["src/measure.ts:253#9fa33df6", "src/measure.ts:254#7e759053"]
+        },
+        { "to": "plan-check", "why": "for the type of a part of the plan file", "evidence": ["src/measure.ts:9#0888f7e2"] }
+      ]
+    },
+    {
+      "id": "plan-check",
+      "name": "Plan file and findings",
+      "zone": "src",
+      "about": "Reads plan.json, checks every field and makes the findings that check prints, and works out the stamps of evidence lines. It is separate from {counting}: this part looks at what people wrote, that one at the files.",
+      "start": "src/validate.ts",
+      "paths": ["src/plan.ts", "src/validate.ts", "src/stamp.ts"],
+      "uses": [
+        {
+          "to": "settings",
+          "why": "to check the form of a path in an evidence or a start",
+          "evidence": ["src/stamp.ts:69#b17d74a1", "src/validate.ts:464#7cf460fa"]
+        },
+        {
+          "to": "counting",
+          "why": "to know whether an evidence path is a plain file, and for the sort order",
+          "evidence": ["src/stamp.ts:50#2c0c0df8", "src/validate.ts:9#62023e7a"]
+        },
+        {
+          "to": "imports",
+          "why": "for the types of the import pairs it makes findings from",
+          "evidence": ["src/validate.ts:7#e6e488c4", "src/validate.ts:8#110d0397"]
+        }
+      ]
+    },
+    {
+      "id": "imports",
+      "name": "Imports of java and js files",
+      "zone": "src",
+      "about": "Finds what the .java files and the JS and TS files of the parts import, without a parser, and which part owns each imported file. It imports no other part.",
+      "start": "src/jsimports.ts",
+      "paths": ["src/imports.ts", "src/jsimports.ts"]
+    },
+    {
+      "id": "draft",
+      "name": "Draft",
+      "zone": "src",
+      "about": "Reads a repository and proposes a first plan file and config file. It lists files with {counting} but decides the parts itself, so it does not need a plan file.",
+      "start": "src/draft.ts",
+      "paths": ["src/draft.ts"],
+      "uses": [
+        {
+          "to": "settings",
+          "why": "to read the config file and compile patterns",
+          "evidence": ["src/draft.ts:405#cb02c585", "src/draft.ts:526#8848f9c4"]
+        },
+        {
+          "to": "counting",
+          "why": "to list the files of the repository and count lines",
+          "evidence": ["src/draft.ts:433#02c73164", "src/draft.ts:450#d2b94d75"]
+        }
+      ]
+    },
+    {
+      "id": "page",
+      "name": "Page",
+      "zone": "src",
+      "about": "Makes the HTML page: the plane layout of parts, zones and lines, the raised picture, and the frame with the viewer code. It gets its inputs from {cli} and reads no file.",
+      "start": "src/page.ts",
+      "paths": ["src/layout.ts", "src/raised.ts", "src/page.ts"],
+      "uses": [
+        {
+          "to": "counting",
+          "why": "for the sort order of zone names",
+          "evidence": ["src/layout.ts:6#62023e7a", "src/raised.ts:24#62023e7a"]
+        }
+      ]
+    },
+    {
+      "id": "reports",
+      "name": "Text outputs",
+      "zone": "src",
+      "about": "The outputs other than the page: the Markdown summary and mermaid diagram, the snapshot and the pull request report, and the history file made from a directory of snapshots.",
+      "start": "src/report.ts",
+      "paths": ["src/summary.ts", "src/report.ts", "src/history.ts"],
+      "uses": [
+        {
+          "to": "counting",
+          "why": "for the measurement type and the sort order",
+          "evidence": ["src/summary.ts:4#4151eb09", "src/report.ts:104#1ff243f9"]
+        },
+        { "to": "page", "why": "for the theme styles and theme button of the history file", "evidence": ["src/history.ts:7#2739e5d7"] },
+        {
+          "to": "settings",
+          "why": "for the config type and the fixed start of a pattern",
+          "evidence": ["src/report.ts:3#42c3e154", "src/report.ts:361#3ee068af"]
+        },
+        {
+          "to": "plan-check",
+          "why": "for the reference pattern, the task statuses and the finding types",
+          "evidence": ["src/summary.ts:100#a54581c6", "src/report.ts:182#bd83e92c"]
+        }
+      ]
+    },
+    {
+      "id": "scripts",
+      "name": "Build script",
+      "zone": "scripts",
+      "about": "Bundles the sources into one file with {esbuild}, starting at the entry file of {cli}, and with --check compares the result with {skill-codeplan}.",
+      "start": "scripts/build.mjs",
+      "paths": ["scripts/**"],
+      "uses": [
+        { "to": "cli", "why": "its entry file is where the bundle starts", "evidence": ["scripts/build.mjs:20#33c6d1a4"] },
+        { "to": "skill-codeplan", "why": "the file it writes or compares", "evidence": ["scripts/build.mjs:14#90e7a391"] },
+        { "to": "esbuild", "why": "to bundle", "evidence": ["scripts/build.mjs:8#86b8af7c"] }
+      ]
+    },
+    {
+      "id": "skill-codeplan",
+      "name": "Bundled tool",
+      "zone": "skill",
+      "about": "The skill folder. The one code file in it is codeplan.mjs, the bundle that {scripts} builds; it is committed so that the tool runs with Node alone.",
+      "start": "skill/codeplan/SKILL.md",
+      "paths": ["skill/codeplan/**"]
+    },
+    {
+      "id": "test-config",
+      "name": "Test config",
+      "about": "The vitest config at the repository root.",
+      "start": "vitest.config.ts",
+      "paths": ["vitest.config.ts"],
+      "uses": [{ "to": "vitest", "why": "to define the config", "evidence": ["vitest.config.ts:1#f209e2ce"] }]
+    }
+  ],
+  "externals": [
+    { "id": "esbuild", "name": "esbuild", "about": "The bundler package, a development dependency." },
+    { "id": "vitest", "name": "vitest", "about": "The test runner package, a development dependency." }
+  ],
+  "scenarios": [
+    {
+      "id": "check-command",
+      "name": "One run of check",
+      "steps": [
+        { "at": "cli", "does": "The entry file hands the arguments to main; run finds the command check and calls check." },
+        { "at": "settings", "does": "Reads codeplan.json, or takes the defaults, and gives back the config." },
+        { "at": "cli", "does": "With the config's home, asks {plan-check} for the plan file." },
+        { "at": "plan-check", "does": "Reads plan.json and prepares its parts for counting." },
+        { "at": "cli", "does": "Hands the config and the parts to {counting}." },
+        {
+          "at": "counting",
+          "does": "Lists the files, keeps the watched ones, gives each to the part with the strongest pattern and counts its lines."
+        },
+        { "at": "cli", "does": "When every part is counted and no file is contested, asks {imports} for the import pairs." },
+        { "at": "imports", "does": "Finds the import paths of the JS and TS files and the parts that own the imported files." },
+        { "at": "cli", "does": "Hands the prepared plan, the counts and the import pairs to {plan-check}." },
+        { "at": "plan-check", "does": "Makes the findings, and judges each evidence against the stamps of its file." },
+        { "at": "cli", "does": "When there is no error and no contested file, asks {page} for the page as it would be written now." },
+        { "at": "page", "does": "Lays out the parts and returns the HTML." },
+        {
+          "at": "cli",
+          "does": "Compares that with the page file byte for byte, prints the counts and the lists, and gives the exit code."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,495 @@
+<!doctype html><!-- codeplan page -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>codeplan</title>
+<style>
+:root { color-scheme: light dark; --cp-bg: #fbfaf7; --cp-text: #1d2433; --cp-text-dim: #4f5869; --cp-part-fill: #ffffff; --cp-part-line: #5d6b82; --cp-ext-fill: #eef3f8; --cp-ext-line: #5f6f86; --cp-zone-fill: #efece4; --cp-zone-line: #857c66; --cp-zone-title: #4a4436; --cp-part-side: #dfe5ee; --cp-edge: #5b6170; --cp-connector: #8a6a1f; --cp-active: #b5400f; --cp-control-fill: #ffffff; --cp-control-line: #6b7486; --cp-control-text: #1d2433; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme]) { --cp-bg: #14171d; --cp-text: #e7e9ee; --cp-text-dim: #a9b0bd; --cp-part-fill: #1e232c; --cp-part-line: #8d9ab0; --cp-ext-fill: #1b2530; --cp-ext-line: #8fa3ba; --cp-zone-fill: #22211d; --cp-zone-line: #9a9079; --cp-zone-title: #d8cfb8; --cp-part-side: #2c3441; --cp-edge: #9aa1ae; --cp-connector: #d0a650; --cp-active: #f08a4b; --cp-control-fill: #1e232c; --cp-control-line: #8d96a6; --cp-control-text: #e7e9ee; } }
+:root[data-theme="light"] { color-scheme: light; --cp-bg: #fbfaf7; --cp-text: #1d2433; --cp-text-dim: #4f5869; --cp-part-fill: #ffffff; --cp-part-line: #5d6b82; --cp-ext-fill: #eef3f8; --cp-ext-line: #5f6f86; --cp-zone-fill: #efece4; --cp-zone-line: #857c66; --cp-zone-title: #4a4436; --cp-part-side: #dfe5ee; --cp-edge: #5b6170; --cp-connector: #8a6a1f; --cp-active: #b5400f; --cp-control-fill: #ffffff; --cp-control-line: #6b7486; --cp-control-text: #1d2433; }
+:root[data-theme="dark"] { color-scheme: dark; --cp-bg: #14171d; --cp-text: #e7e9ee; --cp-text-dim: #a9b0bd; --cp-part-fill: #1e232c; --cp-part-line: #8d9ab0; --cp-ext-fill: #1b2530; --cp-ext-line: #8fa3ba; --cp-zone-fill: #22211d; --cp-zone-line: #9a9079; --cp-zone-title: #d8cfb8; --cp-part-side: #2c3441; --cp-edge: #9aa1ae; --cp-connector: #d0a650; --cp-active: #f08a4b; --cp-control-fill: #1e232c; --cp-control-line: #8d96a6; --cp-control-text: #e7e9ee; }
+html, body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font: 13px/1.4 system-ui, sans-serif; }
+main { padding: 16px; }
+#tools { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 8px; }
+#plane, #raised { display: block; width: 100%; height: auto; max-height: 80vh; background: transparent; }
+#plane[hidden], #raised[hidden] { display: none; }
+.zone { fill: var(--cp-zone-fill); stroke: var(--cp-zone-line); stroke-width: 1; }
+.zone-title { fill: var(--cp-zone-title); font-size: 12px; font-weight: 600; }
+.part { fill: var(--cp-part-fill); stroke: var(--cp-part-line); stroke-width: 1; }
+.part[data-planned] { stroke-dasharray: 6 3; }
+.external { fill: var(--cp-ext-fill); stroke: var(--cp-ext-line); stroke-width: 1; stroke-dasharray: 4 2; }
+.label { fill: var(--cp-text); font-size: 12px; }
+.label .name { font-weight: 600; }
+#raised .zone { fill: none; }
+.side { fill: var(--cp-part-side); stroke: var(--cp-part-line); stroke-width: 1; stroke-linejoin: round; }
+.top { fill: var(--cp-part-fill); stroke: var(--cp-part-line); stroke-width: 1; stroke-linejoin: round; }
+g[data-planned] .side, g[data-planned] .top { stroke-dasharray: 6 3; }
+.edge { fill: none; stroke: var(--cp-edge); stroke-width: 1.25; }
+.connector { fill: none; stroke: var(--cp-connector); stroke-width: 1.25; stroke-dasharray: 5 4; }
+.arrow { fill: var(--cp-edge); stroke: none; }
+rect[data-active] { stroke: var(--cp-active); stroke-width: 3; }
+polyline[data-active] { stroke: var(--cp-active); stroke-width: 3; }
+button, select { background: var(--cp-control-fill); color: var(--cp-control-text); border: 1px solid var(--cp-control-line); border-radius: 4px; font: inherit; padding: 2px 8px; }
+button:disabled { opacity: 0.5; }
+#tasks { margin: 8px 0 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+#tasks:empty { display: none; }
+#tasks button { display: flex; align-items: center; gap: 8px; text-align: left; }
+#tasks details button { margin: 4px 0 0; }
+#tasks button[aria-pressed="true"] { border-color: var(--cp-active); box-shadow: inset 0 0 0 1px var(--cp-active); }
+#tasks p { margin: 0; color: var(--cp-text-dim); }
+.bar-line { fill: none; stroke: var(--cp-control-line); stroke-width: 1; }
+.bar-fill { fill: var(--cp-text-dim); stroke: none; }
+#walk { margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--cp-text); }
+#walk:empty { display: none; }
+#legend { margin: 8px 0 0; color: var(--cp-text-dim); }
+#legend p { margin: 0; }
+</style>
+<script>try { var t = localStorage.getItem("codeplan-theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}</script>
+</head>
+<body>
+<main>
+<div id="tools"></div>
+<svg id="plane" data-picture="plane" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="parts of the repository"></svg>
+<svg id="raised" data-picture="raised" hidden xmlns="http://www.w3.org/2000/svg" role="img" aria-label="parts of the repository as raised rectangles"></svg>
+<div id="tasks"></div>
+<div id="walk"></div>
+<div id="legend"></div>
+</main>
+<script type="application/json" id="codeplan-data">{"format":2,"plan":{"format":1,"name":"codeplan","about":"A command line tool that keeps a plan of a repository beside its code. {cli} runs each command with {settings}, {plan-check}, {counting} and {imports}, and writes its results through {page} and {reports}. {scripts} bundles the sources into {skill-codeplan}.","parts":[{"id":"cli","name":"Commands","zone":"src","about":"The entry point and the commands: it reads the arguments, runs check, update, draft, summary, snapshot, report, history and stamps, and turns each result into standard output, standard error and an exit code. It is the only part that calls every other part under src.","start":"src/cli.ts","paths":["src/bin.ts","src/cli.ts","src/index.ts"],"uses":[{"to":"settings","why":"to read codeplan.json","evidence":["src/cli.ts:268#cbd0e4f2"]},{"to":"draft","why":"to run the draft command","evidence":["src/cli.ts:667#3cdd9f28"]},{"to":"reports","why":"to print summary, snapshot, report and history","evidence":["src/cli.ts:527#a592687b","src/cli.ts:487#821d5613","src/cli.ts:517#b45b644d"]},{"to":"imports","why":"to find which part imports which","evidence":["src/cli.ts:193#f9c6f719","src/cli.ts:218#1ccb8be9"]},{"to":"counting","why":"to count the files and lines of each part","evidence":["src/cli.ts:184#4dd09b32"]},{"to":"plan-check","why":"to read plan.json, get its findings and judge evidence stamps","evidence":["src/cli.ts:273#3542d986","src/cli.ts:183#ad17b0f8","src/cli.ts:194#b95b3c49","src/cli.ts:256#2f415136"]},{"to":"page","why":"to make the page that update writes and check compares","evidence":["src/cli.ts:319#8555f75a","src/cli.ts:320#d1ce29f5","src/cli.ts:337#6a63ffcc"]}]},{"id":"settings","name":"Config and globs","zone":"src","about":"Reads and checks codeplan.json, holds the rules of each language, and compiles glob patterns with their strength. It imports no other part; {counting}, {plan-check}, {draft} and {reports} use it as well as {cli}.","start":"src/config.ts","paths":["src/config.ts","src/glob.ts"]},{"id":"counting","name":"Watch set and ownership","zone":"src","about":"Decides which files are watched and which part owns each one, and counts files and lines. It reads every watched file once and keeps what {imports} needs from it. {plan-check}, {draft}, {page} and {reports} use its byCodeUnit sort order.","start":"src/measure.ts","paths":["src/measure.ts","src/lines.ts"],"uses":[{"to":"settings","why":"for the language rules and to compile the patterns of parts","evidence":["src/measure.ts:85#bf3e0dc6","src/measure.ts:208#18fea5be"]},{"to":"imports","why":"to read the package and import lines of a .java file, and to know which JS and TS files to keep","evidence":["src/measure.ts:253#9fa33df6","src/measure.ts:254#7e759053"]},{"to":"plan-check","why":"for the type of a part of the plan file","evidence":["src/measure.ts:9#0888f7e2"]}]},{"id":"plan-check","name":"Plan file and findings","zone":"src","about":"Reads plan.json, checks every field and makes the findings that check prints, and works out the stamps of evidence lines. It is separate from {counting}: this part looks at what people wrote, that one at the files.","start":"src/validate.ts","paths":["src/plan.ts","src/validate.ts","src/stamp.ts"],"uses":[{"to":"settings","why":"to check the form of a path in an evidence or a start","evidence":["src/stamp.ts:69#b17d74a1","src/validate.ts:464#7cf460fa"]},{"to":"counting","why":"to know whether an evidence path is a plain file, and for the sort order","evidence":["src/stamp.ts:50#2c0c0df8","src/validate.ts:9#62023e7a"]},{"to":"imports","why":"for the types of the import pairs it makes findings from","evidence":["src/validate.ts:7#e6e488c4","src/validate.ts:8#110d0397"]}]},{"id":"imports","name":"Imports of java and js files","zone":"src","about":"Finds what the .java files and the JS and TS files of the parts import, without a parser, and which part owns each imported file. It imports no other part.","start":"src/jsimports.ts","paths":["src/imports.ts","src/jsimports.ts"]},{"id":"draft","name":"Draft","zone":"src","about":"Reads a repository and proposes a first plan file and config file. It lists files with {counting} but decides the parts itself, so it does not need a plan file.","start":"src/draft.ts","paths":["src/draft.ts"],"uses":[{"to":"settings","why":"to read the config file and compile patterns","evidence":["src/draft.ts:405#cb02c585","src/draft.ts:526#8848f9c4"]},{"to":"counting","why":"to list the files of the repository and count lines","evidence":["src/draft.ts:433#02c73164","src/draft.ts:450#d2b94d75"]}]},{"id":"page","name":"Page","zone":"src","about":"Makes the HTML page: the plane layout of parts, zones and lines, the raised picture, and the frame with the viewer code. It gets its inputs from {cli} and reads no file.","start":"src/page.ts","paths":["src/layout.ts","src/raised.ts","src/page.ts"],"uses":[{"to":"counting","why":"for the sort order of zone names","evidence":["src/layout.ts:6#62023e7a","src/raised.ts:24#62023e7a"]}]},{"id":"reports","name":"Text outputs","zone":"src","about":"The outputs other than the page: the Markdown summary and mermaid diagram, the snapshot and the pull request report, and the history file made from a directory of snapshots.","start":"src/report.ts","paths":["src/summary.ts","src/report.ts","src/history.ts"],"uses":[{"to":"counting","why":"for the measurement type and the sort order","evidence":["src/summary.ts:4#4151eb09","src/report.ts:104#1ff243f9"]},{"to":"page","why":"for the theme styles and theme button of the history file","evidence":["src/history.ts:7#2739e5d7"]},{"to":"settings","why":"for the config type and the fixed start of a pattern","evidence":["src/report.ts:3#42c3e154","src/report.ts:361#3ee068af"]},{"to":"plan-check","why":"for the reference pattern, the task statuses and the finding types","evidence":["src/summary.ts:100#a54581c6","src/report.ts:182#bd83e92c"]}]},{"id":"scripts","name":"Build script","zone":"scripts","about":"Bundles the sources into one file with {esbuild}, starting at the entry file of {cli}, and with --check compares the result with {skill-codeplan}.","start":"scripts/build.mjs","paths":["scripts/**"],"uses":[{"to":"cli","why":"its entry file is where the bundle starts","evidence":["scripts/build.mjs:20#33c6d1a4"]},{"to":"skill-codeplan","why":"the file it writes or compares","evidence":["scripts/build.mjs:14#90e7a391"]},{"to":"esbuild","why":"to bundle","evidence":["scripts/build.mjs:8#86b8af7c"]}]},{"id":"skill-codeplan","name":"Bundled tool","zone":"skill","about":"The skill folder. The one code file in it is codeplan.mjs, the bundle that {scripts} builds; it is committed so that the tool runs with Node alone.","start":"skill/codeplan/SKILL.md","paths":["skill/codeplan/**"]},{"id":"test-config","name":"Test config","about":"The vitest config at the repository root.","start":"vitest.config.ts","paths":["vitest.config.ts"],"uses":[{"to":"vitest","why":"to define the config","evidence":["vitest.config.ts:1#f209e2ce"]}]}],"externals":[{"id":"esbuild","name":"esbuild","about":"The bundler package, a development dependency."},{"id":"vitest","name":"vitest","about":"The test runner package, a development dependency."}],"scenarios":[{"id":"check-command","name":"One run of check","steps":[{"at":"cli","does":"The entry file hands the arguments to main; run finds the command check and calls check."},{"at":"settings","does":"Reads codeplan.json, or takes the defaults, and gives back the config."},{"at":"cli","does":"With the config's home, asks {plan-check} for the plan file."},{"at":"plan-check","does":"Reads plan.json and prepares its parts for counting."},{"at":"cli","does":"Hands the config and the parts to {counting}."},{"at":"counting","does":"Lists the files, keeps the watched ones, gives each to the part with the strongest pattern and counts its lines."},{"at":"cli","does":"When every part is counted and no file is contested, asks {imports} for the import pairs."},{"at":"imports","does":"Finds the import paths of the JS and TS files and the parts that own the imported files."},{"at":"cli","does":"Hands the prepared plan, the counts and the import pairs to {plan-check}."},{"at":"plan-check","does":"Makes the findings, and judges each evidence against the stamps of its file."},{"at":"cli","does":"When there is no error and no contested file, asks {page} for the page as it would be written now."},{"at":"page","does":"Lays out the parts and returns the HTML."},{"at":"cli","does":"Compares that with the page file byte for byte, prints the counts and the lists, and gives the exit code."}]}]},"measure":{"parts":[{"id":"cli","files":3,"lines":722},{"id":"settings","files":2,"lines":356},{"id":"counting","files":2,"lines":277},{"id":"plan-check","files":3,"lines":800},{"id":"imports","files":2,"lines":521},{"id":"draft","files":1,"lines":1011},{"id":"page","files":3,"lines":1236},{"id":"reports","files":3,"lines":1137},{"id":"scripts","files":1,"lines":45},{"id":"skill-codeplan","files":1,"lines":4638},{"id":"test-config","files":1,"lines":7}],"files":22,"lines":10750},"orphans":[],"unwatched":0,"tasks":[],"layout":{"width":489,"height":1141,"zones":[{"name":"scripts","x":8,"y":8,"w":120,"h":100,"title":{"x":16,"y":8,"w":61,"h":20}},{"name":"skill","x":136,"y":8,"w":190,"h":209,"title":{"x":144,"y":8,"w":47,"h":20}},{"name":"src","x":8,"y":241,"w":368,"h":708,"title":{"x":16,"y":241,"w":33,"h":20}}],"parts":[{"id":"cli","x":16,"y":269,"w":104,"h":104,"label":{"x":16,"y":269,"w":75,"h":56}},{"id":"settings","x":128,"y":269,"w":124,"h":61,"label":{"x":128,"y":269,"w":124,"h":56}},{"id":"counting","x":16,"y":405,"w":173,"h":56,"label":{"x":16,"y":405,"w":173,"h":56}},{"id":"plan-check","x":16,"y":485,"w":166,"h":69,"label":{"x":16,"y":485,"w":166,"h":56}},{"id":"imports","x":16,"y":578,"w":208,"h":56,"label":{"x":16,"y":578,"w":208,"h":56}},{"id":"draft","x":16,"y":650,"w":113,"h":113,"label":{"x":16,"y":650,"w":82,"h":56}},{"id":"page","x":137,"y":650,"w":119,"h":119,"label":{"x":137,"y":650,"w":82,"h":56}},{"id":"reports","x":16,"y":809,"w":117,"h":116,"label":{"x":16,"y":809,"w":96,"h":56}},{"id":"scripts","x":16,"y":36,"w":96,"h":56,"label":{"x":16,"y":36,"w":96,"h":56}},{"id":"skill-codeplan","x":144,"y":36,"w":166,"h":165,"label":{"x":144,"y":36,"w":96,"h":56}},{"id":"test-config","x":384,"y":241,"w":89,"h":56,"label":{"x":384,"y":241,"w":89,"h":56}}],"externals":[{"id":"esbuild","x":8,"y":1077,"w":68,"h":40,"label":{"x":8,"y":1077,"w":68,"h":40}},{"id":"vitest","x":84,"y":1077,"w":68,"h":40,"label":{"x":84,"y":1077,"w":68,"h":40}}],"edges":[{"from":"cli","to":"settings","points":[[50,373],[50,397],[190,397],[190,330]]},{"from":"cli","to":"draft","points":[[50,373],[50,397],[352,397],[352,793],[91,793],[91,763]]},{"from":"cli","to":"reports","points":[[50,373],[50,397],[352,397],[352,933],[94,933],[94,925]]},{"from":"cli","to":"imports","points":[[50,373],[50,397],[352,397],[352,642],[120,642],[120,634]]},{"from":"cli","to":"counting","points":[[50,373],[50,397],[352,397],[352,469],[131,469],[131,461]]},{"from":"cli","to":"plan-check","points":[[50,373],[50,397],[352,397],[352,562],[126,562],[126,554]]},{"from":"cli","to":"page","points":[[50,373],[50,397],[352,397],[352,777],[216,777],[216,769]]},{"from":"counting","to":"settings","points":[[73,461],[73,477],[368,477],[368,381],[190,381],[190,330]]},{"from":"counting","to":"imports","points":[[73,461],[73,477],[336,477],[336,642],[120,642],[120,634]]},{"from":"counting","to":"plan-check","points":[[73,461],[73,477],[336,477],[336,562],[126,562],[126,554]]},{"from":"plan-check","to":"settings","points":[[71,554],[71,570],[368,570],[368,381],[190,381],[190,330]]},{"from":"plan-check","to":"counting","points":[[71,554],[71,570],[344,570],[344,469],[131,469],[131,461]]},{"from":"plan-check","to":"imports","points":[[71,554],[71,570],[320,570],[320,642],[120,642],[120,634]]},{"from":"draft","to":"settings","points":[[53,763],[53,801],[368,801],[368,381],[190,381],[190,330]]},{"from":"draft","to":"counting","points":[[53,763],[53,801],[344,801],[344,469],[131,469],[131,461]]},{"from":"page","to":"counting","points":[[176,769],[176,785],[344,785],[344,469],[131,469],[131,461]]},{"from":"reports","to":"counting","points":[[55,925],[55,941],[344,941],[344,469],[131,469],[131,461]]},{"from":"reports","to":"page","points":[[55,925],[55,941],[304,941],[304,777],[216,777],[216,769]]},{"from":"reports","to":"settings","points":[[55,925],[55,941],[368,941],[368,381],[190,381],[190,330]]},{"from":"reports","to":"plan-check","points":[[55,925],[55,941],[328,941],[328,562],[126,562],[126,554]]},{"from":"scripts","to":"cli","points":[[64,92],[64,100],[120,100],[120,233],[112,233],[112,269]]},{"from":"scripts","to":"skill-codeplan","points":[[64,92],[64,100],[120,100],[120,233],[318,233],[318,209],[227,209],[227,201]]},{"from":"scripts","to":"esbuild","points":[[64,92],[64,100],[120,100],[120,233],[481,233],[481,1133],[42,1133],[42,1117]]},{"from":"test-config","to":"vitest","points":[[428,297],[428,957],[151,957],[151,1077]]}],"connectors":[]},"raised":{"width":824,"height":672,"projection":{"x":[1,0,1,8],"y":[0,1,-1,8]},"zones":[{"name":"scripts","x":453,"y":0,"w":120,"h":100,"title":{"x":469,"y":8,"w":61,"h":20}},{"name":"skill","x":453,"y":108,"w":250,"h":269,"title":{"x":469,"y":116,"w":47,"h":20}},{"name":"src","x":0,"y":0,"w":445,"h":656,"title":{"x":16,"y":8,"w":33,"h":20}}],"parts":[{"id":"cli","x":8,"y":55,"w":104,"h":104,"z":27,"label":{"x":43,"y":36,"w":75,"h":56}},{"id":"settings","x":8,"y":186,"w":124,"h":61,"z":19,"label":{"x":35,"y":175,"w":124,"h":56}},{"id":"counting","x":8,"y":272,"w":173,"h":56,"z":17,"label":{"x":33,"y":263,"w":173,"h":56}},{"id":"plan-check","x":206,"y":56,"w":166,"h":69,"z":28,"label":{"x":242,"y":36,"w":166,"h":56}},{"id":"imports","x":206,"y":156,"w":208,"h":56,"z":23,"label":{"x":237,"y":141,"w":208,"h":56}},{"id":"draft","x":8,"y":368,"w":113,"h":113,"z":32,"label":{"x":48,"y":344,"w":82,"h":56}},{"id":"page","x":161,"y":371,"w":119,"h":119,"z":35,"label":{"x":204,"y":344,"w":82,"h":56}},{"id":"reports","x":8,"y":532,"w":117,"h":116,"z":34,"label":{"x":50,"y":506,"w":96,"h":56}},{"id":"scripts","x":461,"y":36,"w":96,"h":56,"z":8,"label":{"x":477,"y":36,"w":96,"h":56}},{"id":"skill-codeplan","x":461,"y":204,"w":166,"h":165,"z":68,"label":{"x":537,"y":144,"w":96,"h":56}},{"id":"test-config","x":711,"y":116,"w":89,"h":56,"z":8,"label":{"x":727,"y":116,"w":89,"h":56}}],"externals":[{"id":"esbuild","x":711,"y":180,"w":68,"h":40,"label":{"x":719,"y":188,"w":68,"h":40}},{"id":"vitest","x":711,"y":228,"w":68,"h":40,"label":{"x":719,"y":236,"w":68,"h":40}}],"order":["cli","settings","counting","plan-check","imports","draft","page","reports","scripts","skill-codeplan","test-config","esbuild","vitest"]}}</script>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  var data = JSON.parse(document.getElementById("codeplan-data").textContent);
+  var plan = data.plan;
+  var layout = data.layout;
+  var plane = document.getElementById("plane");
+  plane.setAttribute("viewBox", "0 0 " + layout.width + " " + layout.height);
+  function make(name, attrs, parent) {
+    var el = document.createElementNS(NS, name);
+    for (var k in attrs) el.setAttribute(k, String(attrs[k]));
+    parent.appendChild(el);
+    return el;
+  }
+  function html(name, parent) {
+    var el = document.createElement(name);
+    parent.appendChild(el);
+    return el;
+  }
+  function textBox(box, lines, cls, parent) {
+    var clip = make("svg", { x: box.x, y: box.y, width: box.w, height: box.h, overflow: "hidden" }, parent);
+    for (var i = 0; i < lines.length; i++) {
+      var t = make("text", { x: 6, y: 16 * (i + 1), "class": i === 0 ? cls + " name" : cls }, clip);
+      t.textContent = lines[i];
+    }
+  }
+  function str(v) { return typeof v === "string" ? v : ""; }
+  function points(list) {
+    var out = [];
+    for (var i = 0; i < list.length; i++) out.push(list[i][0] + "," + list[i][1]);
+    return out.join(" ");
+  }
+
+  var names = Object.create(null);
+  var planParts = plan.parts || [];
+  var planExternals = plan.externals || [];
+  var planned = Object.create(null);
+  for (var i = 0; i < planParts.length; i++) {
+    names[planParts[i].id] = str(planParts[i].name) || planParts[i].id;
+    if (planParts[i].planned === true) planned[planParts[i].id] = true;
+  }
+  for (var e = 0; e < planExternals.length; e++) names[planExternals[e].id] = str(planExternals[e].name) || planExternals[e].id;
+  var measured = Object.create(null);
+  for (var j = 0; j < data.measure.parts.length; j++) measured[data.measure.parts[j].id] = data.measure.parts[j];
+
+  var defs = make("defs", {}, plane);
+  // The arrowhead is 6 drawing units whatever the line width or highlight,
+  // so it stays in the gap of 8 before the rectangle and inside the canvas.
+  var marker = make("marker", { id: "arrow", viewBox: "0 0 10 10", refX: 10, refY: 5, markerWidth: 6, markerHeight: 6, markerUnits: "userSpaceOnUse", orient: "auto" }, defs);
+  make("path", { d: "M0,0 L10,5 L0,10 z", "class": "arrow" }, marker);
+
+  for (var z = 0; z < layout.zones.length; z++) {
+    var zone = layout.zones[z];
+    make("rect", { x: zone.x, y: zone.y, width: zone.w, height: zone.h, "class": "zone" }, plane);
+    textBox(zone.title, [zone.name], "zone-title", plane);
+  }
+  var rects = Object.create(null);
+  for (var p = 0; p < layout.parts.length; p++) {
+    var part = layout.parts[p];
+    var m = measured[part.id] || { lines: 0, files: 0 };
+    rects[part.id] = make("rect", { x: part.x, y: part.y, width: part.w, height: part.h, "class": "part", "data-id": part.id }, plane);
+    if (planned[part.id]) rects[part.id].setAttribute("data-planned", "true");
+    textBox(part.label, [names[part.id] || part.id, m.lines + " lines", planned[part.id] ? "planned" : m.files + " files"], "label", plane);
+  }
+  for (var x = 0; x < layout.externals.length; x++) {
+    var ext = layout.externals[x];
+    rects[ext.id] = make("rect", { x: ext.x, y: ext.y, width: ext.w, height: ext.h, "class": "external", "data-id": ext.id }, plane);
+    textBox(ext.label, [names[ext.id] || ext.id, "external"], "label", plane);
+  }
+  var edges = [];
+  for (var d = 0; d < layout.edges.length; d++) {
+    var edge = layout.edges[d];
+    edges.push({ from: edge.from, to: edge.to, el: make("polyline", { points: points(edge.points), "class": "edge", "marker-end": "url(#arrow)", "data-from": edge.from, "data-to": edge.to }, plane) });
+  }
+  var connectors = [];
+  for (var c = 0; c < layout.connectors.length; c++) {
+    var con = layout.connectors[c];
+    connectors.push({ scenario: con.scenario, step: con.step, el: make("polyline", { points: points(con.points), "class": "connector", "data-scenario": con.scenario, "data-step": con.step }, plane) });
+  }
+
+  // The raised picture: zone lines, then the shapes in the order the data
+  // gives, then the labels and the zone titles. A part is its left side,
+  // its front side and its top; an external is the rectangle on the ground.
+  var raised = data.raised;
+  var raisedSvg = document.getElementById("raised");
+  raisedSvg.setAttribute("viewBox", "0 0 " + raised.width + " " + raised.height);
+  var px = raised.projection.x;
+  var py = raised.projection.y;
+  function face(corners, cls, parent) {
+    var out = [];
+    for (var i = 0; i < corners.length; i++) {
+      var c = corners[i];
+      out.push((px[0] * c[0] + px[1] * c[1] + px[2] * c[2] + px[3]) + "," + (py[0] * c[0] + py[1] * c[1] + py[2] * c[2] + py[3]));
+    }
+    make("polygon", { points: out.join(" "), "class": cls }, parent);
+  }
+  function level(b, z) {
+    return [[b.x, b.y, z], [b.x + b.w, b.y, z], [b.x + b.w, b.y + b.h, z], [b.x, b.y + b.h, z]];
+  }
+  for (var rz = 0; rz < raised.zones.length; rz++) face(level(raised.zones[rz], 0), "zone", raisedSvg);
+  var raisedParts = Object.create(null);
+  for (var rp = 0; rp < raised.parts.length; rp++) raisedParts[raised.parts[rp].id] = raised.parts[rp];
+  var raisedExternals = Object.create(null);
+  for (var rx = 0; rx < raised.externals.length; rx++) raisedExternals[raised.externals[rx].id] = raised.externals[rx];
+  for (var ro = 0; ro < raised.order.length; ro++) {
+    var shape = make("g", { "data-id": raised.order[ro] }, raisedSvg);
+    var b = raisedParts[raised.order[ro]];
+    if (!b) {
+      face(level(raisedExternals[raised.order[ro]], 0), "external", shape);
+      continue;
+    }
+    if (planned[b.id]) shape.setAttribute("data-planned", "true");
+    face([[b.x, b.y, 0], [b.x, b.y + b.h, 0], [b.x, b.y + b.h, b.z], [b.x, b.y, b.z]], "side", shape);
+    face([[b.x, b.y + b.h, 0], [b.x + b.w, b.y + b.h, 0], [b.x + b.w, b.y + b.h, b.z], [b.x, b.y + b.h, b.z]], "side", shape);
+    face(level(b, b.z), "top", shape);
+  }
+  for (var rl = 0; rl < raised.parts.length; rl++) {
+    var rm = measured[raised.parts[rl].id] || { lines: 0, files: 0 };
+    textBox(raised.parts[rl].label, [names[raised.parts[rl].id] || raised.parts[rl].id, rm.lines + " lines", planned[raised.parts[rl].id] ? "planned" : rm.files + " files"], "label", raisedSvg);
+  }
+  for (var re = 0; re < raised.externals.length; re++) textBox(raised.externals[re].label, [names[raised.externals[re].id] || raised.externals[re].id, "external"], "label", raisedSvg);
+  for (var rt = 0; rt < raised.zones.length; rt++) textBox(raised.zones[rt].title, [raised.zones[rt].name], "zone-title", raisedSvg);
+
+  var legend = document.getElementById("legend");
+  function line(text) { html("p", legend).textContent = text; }
+  var title = str(plan.name);
+  line(data.measure.files + " files, " + data.measure.lines + " lines" + (title ? " \u00b7 " + title : ""));
+  if (data.orphans.length > 0) line(data.orphans.length + " orphan files: no part owns them");
+  if (data.unwatched > 0) line(data.unwatched + " unwatched files: code outside the watch set");
+  if (title) document.title = title;
+
+  // The picture button: one picture shows at a time, and the button names
+  // the other one.
+  var pictureButton = html("button", document.getElementById("tools"));
+  pictureButton.type = "button";
+  pictureButton.setAttribute("data-role", "picture");
+  pictureButton.title = "Show the other picture of the plan";
+  var picture;
+  function setPicture(name) {
+    picture = name;
+    (name === "raised" ? plane : raisedSvg).setAttribute("hidden", "");
+    (name === "raised" ? raisedSvg : plane).removeAttribute("hidden");
+    pictureButton.textContent = name === "raised" ? "plane" : "raised";
+  }
+  setPicture("plane");
+  // The raised picture ends a walk-through and a chosen task, and its
+  // fragment has the picture key alone.
+  function showRaised() {
+    if (current !== null) close(true);
+    endTask(true);
+    setPicture("raised");
+    setHash("picture=raised");
+  }
+  pictureButton.addEventListener("click", function () {
+    if (picture === "raised") {
+      setPicture("plane");
+      setHash("");
+    } else showRaised();
+  });
+
+  // The theme button: auto, then light, then dark, then auto again.
+  var root = document.documentElement;
+  var themeButton = html("button", document.getElementById("tools"));
+  themeButton.type = "button";
+  themeButton.setAttribute("data-role", "theme");
+  themeButton.title = "Colour theme: auto follows the system setting";
+  function themeNow() {
+    var t = root.getAttribute("data-theme");
+    return t === "light" || t === "dark" ? t : "auto";
+  }
+  themeButton.textContent = themeNow();
+  themeButton.addEventListener("click", function () {
+    var next = { auto: "light", light: "dark", dark: "auto" }[themeNow()];
+    if (next === "auto") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", next);
+    themeButton.textContent = next;
+    try {
+      if (next === "auto") localStorage.removeItem("codeplan-theme");
+      else localStorage.setItem("codeplan-theme", next);
+    } catch (e) {}
+  });
+
+  var scenarios = plan.scenarios || [];
+  var tasks = data.tasks || [];
+  function setHash(text) {
+    history.replaceState(null, "", text ? "#" + text : location.pathname + location.search);
+  }
+  function clearActive() {
+    for (var id in rects) rects[id].removeAttribute("data-active");
+    for (var i = 0; i < edges.length; i++) edges[i].el.removeAttribute("data-active");
+    for (var k = 0; k < connectors.length; k++) connectors[k].el.removeAttribute("data-active");
+  }
+
+  // The task pane: one button for each task, the done tasks in a closed
+  // details element after the others. Choosing a task marks its parts; a scenario
+  // walk-through and a chosen task end each other.
+  var pane = document.getElementById("tasks");
+  var written = Object.create(null);
+  var planTasks = plan.tasks || [];
+  for (var w = 0; w < planTasks.length; w++) written[planTasks[w].id] = planTasks[w];
+  var taskRows = Object.create(null);
+  var chosen = null;
+  var current = null;
+  function addTask(task, parent, fold) {
+    var from = written[task.id];
+    var button = html("button", parent);
+    button.type = "button";
+    button.setAttribute("data-task", task.id);
+    html("span", button).textContent = str(from.name) || task.id;
+    html("span", button).textContent = from.status;
+    var makes = from.makes || [];
+    var counted = Object.create(null);
+    var m = 0;
+    for (var i = 0; i < makes.length; i++) {
+      if (!counted[makes[i]]) m++;
+      counted[makes[i]] = true;
+    }
+    if (m > 0) {
+      var n = m - task.missing.length;
+      html("span", button).textContent = n + " of " + m + " files";
+      var bar = make("svg", { width: 66, height: 10, viewBox: "0 0 66 10", "class": "bar", "aria-hidden": "true" }, button);
+      make("rect", { x: 0.5, y: 0.5, width: 65, height: 9, "class": "bar-line" }, bar);
+      make("rect", { x: 1, y: 1, width: Math.round(64 * n / m), height: 8, "class": "bar-fill" }, bar);
+    }
+    taskRows[task.id] = { button: button, fold: fold, marks: task.marks, missing: null };
+    button.addEventListener("click", function () {
+      if (chosen === task.id) endTask();
+      else chooseTask(task.id);
+    });
+  }
+  if (tasks.length > 0) {
+    var doneCount = 0;
+    for (var a = 0; a < tasks.length; a++) {
+      if (written[tasks[a].id].status === "done") doneCount++;
+      else addTask(tasks[a], pane, null);
+    }
+    if (doneCount > 0) {
+      var doneFold = html("details", pane);
+      html("summary", doneFold).textContent = "Done (" + doneCount + ")";
+      for (var b = 0; b < tasks.length; b++) {
+        if (written[tasks[b].id].status === "done") addTask(tasks[b], doneFold, doneFold);
+      }
+    }
+    for (var g = 0; g < tasks.length; g++) {
+      if (tasks[g].missing.length === 0) continue;
+      var box = html("div", pane);
+      box.setAttribute("hidden", "");
+      html("p", box).textContent = "Files this task makes that are not in the repository:";
+      for (var h = 0; h < tasks[g].missing.length; h++) html("p", box).textContent = tasks[g].missing[h];
+      taskRows[tasks[g].id].missing = box;
+    }
+  }
+  // keep: the fragment is left as it is.
+  function endTask(keep) {
+    if (chosen === null) return;
+    var row = taskRows[chosen];
+    row.button.removeAttribute("aria-pressed");
+    if (row.missing) row.missing.setAttribute("hidden", "");
+    chosen = null;
+    clearActive();
+    if (!keep) setHash("");
+  }
+  function chooseTask(id, keep) {
+    setPicture("plane");
+    if (current !== null) close(true);
+    endTask(true);
+    var row = taskRows[id];
+    chosen = id;
+    row.button.setAttribute("aria-pressed", "true");
+    if (row.fold) row.fold.setAttribute("open", "");
+    for (var i = 0; i < row.marks.length; i++) {
+      if (rects[row.marks[i]]) rects[row.marks[i]].setAttribute("data-active", "");
+    }
+    if (row.missing) row.missing.removeAttribute("hidden");
+    if (!keep) setHash("task=" + id);
+  }
+
+  var select, prev, next, stepText;
+  if (scenarios.length > 0) {
+    var walk = document.getElementById("walk");
+    select = html("select", walk);
+    select.setAttribute("aria-label", "Scenario");
+    var none = html("option", select);
+    none.value = "";
+    none.textContent = "(none)";
+    for (var s = 0; s < scenarios.length; s++) {
+      var option = html("option", select);
+      option.value = String(s);
+      option.textContent = str(scenarios[s].name) || scenarios[s].id;
+    }
+    prev = html("button", walk);
+    prev.type = "button";
+    prev.textContent = "Previous";
+    prev.title = "Previous step (Left arrow key)";
+    next = html("button", walk);
+    next.type = "button";
+    next.textContent = "Next";
+    next.title = "Next step (Right arrow key). Esc ends the walk-through.";
+    stepText = html("span", walk);
+    stepText.setAttribute("data-role", "step");
+    prev.disabled = true;
+    next.disabled = true;
+    select.addEventListener("change", function () {
+      if (select.value === "") {
+        if (current !== null) close();
+      } else open(Number(select.value), 0);
+    });
+    prev.addEventListener("click", function () { move(-1); });
+    next.addEventListener("click", function () { move(1); });
+  }
+
+  var REF = /\{([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\}/g;
+  function fill(text) {
+    return str(text).replace(REF, function (whole, id) { return id in names ? names[id] : whole; });
+  }
+  // keep: opened from the fragment, which is then left as it is.
+  function show(keep) {
+    clearActive();
+    var scenario = scenarios[current.index];
+    var steps = scenario.steps || [];
+    if (steps.length === 0) {
+      stepText.textContent = "This scenario has no steps";
+      prev.disabled = true;
+      next.disabled = true;
+      if (!keep) setHash("scenario=" + scenario.id);
+      return;
+    }
+    var k = current.step;
+    var at = steps[k].at;
+    if (rects[at]) rects[at].setAttribute("data-active", "");
+    if (k > 0 && steps[k - 1].at !== at) {
+      var before = steps[k - 1].at;
+      var lit = false;
+      for (var i = 0; i < edges.length; i++) {
+        if ((edges[i].from === before && edges[i].to === at) || (edges[i].from === at && edges[i].to === before)) {
+          edges[i].el.setAttribute("data-active", "");
+          lit = true;
+        }
+      }
+      if (!lit) {
+        for (var c = 0; c < connectors.length; c++) {
+          if (connectors[c].scenario === scenario.id && connectors[c].step === k) connectors[c].el.setAttribute("data-active", "");
+        }
+      }
+    }
+    stepText.textContent = (k + 1) + "/" + steps.length + " " + (names[at] || at) + ": " + fill(steps[k].does);
+    prev.disabled = k === 0;
+    next.disabled = k === steps.length - 1;
+    if (!keep) setHash("scenario=" + scenario.id + "&step=" + (k + 1));
+  }
+  function open(index, step, fromHash) {
+    setPicture("plane");
+    endTask(true);
+    current = { index: index, step: step };
+    select.value = String(index);
+    show(fromHash);
+    if (!next.disabled) next.focus();
+  }
+  // keep: the fragment is left as it is.
+  function close(keep) {
+    current = null;
+    clearActive();
+    select.value = "";
+    stepText.textContent = "";
+    prev.disabled = true;
+    next.disabled = true;
+    if (!keep) setHash("");
+  }
+  function move(by) {
+    if (current === null) return;
+    var steps = scenarios[current.index].steps || [];
+    var k = current.step + by;
+    if (k < 0 || k >= steps.length) return;
+    current.step = k;
+    show();
+  }
+  document.addEventListener("keydown", function (event) {
+    if (current === null) {
+      if (chosen !== null && event.key === "Escape" && !event.altKey && !event.ctrlKey && !event.metaKey) endTask();
+      return;
+    }
+    if (document.activeElement === select) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key === "ArrowLeft") { event.preventDefault(); move(-1); }
+    else if (event.key === "ArrowRight") { event.preventDefault(); move(1); }
+    else if (event.key === "Escape") close();
+  });
+
+  // Opens what the fragment names: on load, and when the fragment changes
+  // later (replaceState above does not fire hashchange). A scenario key is
+  // read first and the task key is then not looked at. An unknown id is
+  // ignored; no fragment at all ends the walk-through and the chosen task.
+  // The picture key is read only when neither of those keys is there; the
+  // raised picture shows for the value "raised" and the plane picture for
+  // anything else.
+  function fromHash(onLoad) {
+    var text = location.hash.replace(/^#/, "");
+    if (text === "") {
+      if (!onLoad) {
+        if (current !== null) close();
+        endTask();
+        setPicture("plane");
+      }
+      return;
+    }
+    var wanted = Object.create(null);
+    var pieces = text.split("&");
+    for (var q = 0; q < pieces.length; q++) {
+      var eq = pieces[q].indexOf("=");
+      if (eq > 0) {
+        try { wanted[decodeURIComponent(pieces[q].slice(0, eq))] = decodeURIComponent(pieces[q].slice(eq + 1)); } catch (err) {}
+      }
+    }
+    if ("scenario" in wanted) {
+      setPicture("plane");
+      for (var w = 0; w < scenarios.length; w++) {
+        if (scenarios[w].id !== wanted.scenario) continue;
+        var n = (scenarios[w].steps || []).length;
+        var k = /^[0-9]+$/.test(wanted.step || "") ? parseInt(wanted.step, 10) : 0;
+        open(w, k >= 1 && k <= n ? k - 1 : 0, true);
+        return;
+      }
+      return;
+    }
+    if ("task" in wanted) {
+      setPicture("plane");
+      if (taskRows[wanted.task]) chooseTask(wanted.task, true);
+    } else if (wanted.picture === "raised") showRaised();
+    else setPicture("plane");
+  }
+  window.addEventListener("hashchange", function () { fromHash(false); });
+  fromHash(true);
+})();
+</script>
+</body>
+</html>
