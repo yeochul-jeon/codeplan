@@ -146,17 +146,18 @@ describe("stampEntries", () => {
 });
 
 // A base snapshot file changed by `change`, and report with it.
-function reportWith(head: string, change: (s: Item) => void): ReturnType<typeof run> {
+function reportWith(head: string, change: (s: Item) => void): ReturnType<typeof run> & { file: string } {
   const s = snap(withUses([use("b", [DIFFERS])]));
   change(s);
   const file = join(tempDir(), "base.json");
   writeFileSync(file, JSON.stringify(s));
-  return run(["report", "--base", file], head);
+  return { ...run(["report", "--base", file], head), file };
 }
 
 describe("--base", () => {
   const head = () => withUses([use("b", [DIFFERS])]);
-  const refused = "codeplan: cannot use the base snapshot";
+  const refused = (file: string) =>
+    `codeplan: the --base file ${file} cannot be used: its stampEntries or an entry of its diagnostics does not have the fields of a snapshot`;
 
   test.each([
     ["counts not an object", (s: Item) => (s.stampEntries = [1, 0, 0, 0, 0])],
@@ -173,8 +174,7 @@ describe("--base", () => {
     const out = reportWith(head(), change);
     expect(out.code).toBe(2);
     expect(out.stdout).toBe("");
-    expect(out.stderr.startsWith(refused) || out.stderr.startsWith("codeplan: ")).toBe(true);
-    expect(out.stderr).toContain("stampEntries or an entry of its diagnostics");
+    expect(out.stderr).toBe(`${refused(out.file)}\n`);
   });
 
   test("unknown keys in entry are read; an entry on another code is not compared", () => {
@@ -286,6 +286,11 @@ describe("report: the lists", () => {
     const text = block(side(counts(31), many("h")), side(counts(31), many("b")))!;
     expect(text.match(/^- and 1 more$/gm)).toHaveLength(2);
     expect(text.match(/^- part /gm)).toHaveLength(60);
+    // One list only.
+    const one = block(side(counts(31), many("h")), side(counts(0)))!;
+    expect(one).not.toContain("Reported in the base");
+    expect(one.match(/^- and 1 more$/gm)).toHaveLength(1);
+    expect(one.match(/^- part /gm)).toHaveLength(30);
   });
 
   test("the three values go through the Markdown escape", () => {
@@ -313,6 +318,12 @@ describe("report: not compared", () => {
     expect(text).toContain(`Reported in the head and not in the base:\n\n${lines(A)}`);
     expect(text).toContain(`Reported in the base and not in the head:\n\n${lines(e("z:1#00000000"))}`);
     expect(text.endsWith(`${SCOPE}\n\n${notCompared(3)}`)).toBe(true);
+  });
+
+  test("the same entry twice in the base: both left out and counted", () => {
+    const base = side(counts(2), [finding("stamp-differs", A), finding("stamp-elsewhere", A)]);
+    const text = block(side(counts(1), [finding("stamp-differs", A)]), base)!;
+    expect(text).toBe(`${TITLE}\n\n${COUNTS([1, 0, 0, 0, 0])} In the base: 2, 0, 0, 0, 0.\n\nReported in the head and not in the base:\n\n${lines(A)}\n\n${SCOPE}\n\n${notCompared(2)}`);
   });
 
   test("findings with no entry: elsewhere and differs on both sides, not no-line or no-file", () => {
@@ -374,6 +385,11 @@ describe("what stays as in f143f50", () => {
     const expected = historyOf(record);
     expect(historyOf(plainRecord)).toEqual(expected);
     expect(historyOf({ ...record, stampEntries: 5 })).toEqual(expected);
+    // An entry of 5 is still a measured record.
+    const fived = structuredClone(record);
+    for (const d of fived.diagnostics) if ("entry" in d) d.entry = 5;
+    expect(fived.diagnostics.some((d: Item) => d.entry === 5)).toBe(true);
+    expect(historyOf(fived)).toEqual(expected);
     // And as the bundle of f143f50 prints it.
     const old = oldBundle();
     const dir = tempDir();

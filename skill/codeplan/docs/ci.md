@@ -140,8 +140,8 @@ each finding in `diagnostics`. Four cases, with `--base`:
   That is so for a base made by an older codeplan and for a base whose plan
   had no stamp.
 - Only the base has it: one sentence gives the base's number of entries.
-  The head may have no stamp, no plan file, or a plan file that cannot be
-  read.
+  The head may have no stamp, no plan file, or a plan file that is not
+  an object.
 - Neither has it: the block is left out. That means there is nothing to
   compare, not that no evidence entry is out of place.
 
