@@ -5,7 +5,7 @@ import { fixedHead } from "./glob.js";
 import { byCodeUnit, type Measurement } from "./measure.js";
 import type { PlanPart } from "./plan.js";
 import { filesCell, plain } from "./summary.js";
-import { STATUSES, type Diagnostic, type PlanTask, type Status } from "./validate.js";
+import { STATUSES, type Diagnostic, type EvidenceItem, type PlanTask, type Status } from "./validate.js";
 
 export const SNAPSHOT_FORMAT = 1;
 // Raised when a change makes the same tree measure differently.
@@ -32,12 +32,41 @@ export interface Snapshot {
   parts: SnapshotPart[];
   // Only when JS and TS imports are judged.
   jsImports?: JsImports;
+  // Only when the plan has evidence entries with a stamp.
+  stampEntries?: StampEntries;
   owned: { path: string; part: string; pattern: string }[];
   orphans: string[];
   contested: { path: string; parts: string[] }[];
   unwatched: string[];
   tasks: SnapshotTask[];
-  diagnostics: (Diagnostic & { fix: string })[];
+  // `entry` only on a finding of an evidence entry with a stamp.
+  diagnostics: (Diagnostic & { fix: string; entry?: Entry })[];
+}
+
+export interface Entry {
+  part: string;
+  to: string;
+  evidence: string;
+}
+
+export interface StampEntries {
+  entries: number;
+  elsewhere: number;
+  differs: number;
+  noLine: number;
+  noFile: number;
+}
+
+// The findings of an evidence entry with a stamp, in the order of the
+// counts after `entries`.
+const STAMP_CODES = ["stamp-elsewhere", "stamp-differs", "no-line", "no-file"].map((c) => `evidence-${c}`);
+const COUNT_KEYS = ["entries", "elsewhere", "differs", "noLine", "noFile"] as const;
+const entryKey = (e: { part: string | null; to: string | null; evidence: string }) => JSON.stringify([e.part, e.to, e.evidence]);
+// How many times each key is there.
+function tallyKeys(keys: string[]): Map<string, number> {
+  const n = new Map<string, number>();
+  for (const k of keys) n.set(k, (n.get(k) ?? 0) + 1);
+  return n;
 }
 
 export interface JsImports {
@@ -62,6 +91,7 @@ export function takeSnapshot(found: {
   tasks: PlanTask[];
   excluded: number;
   jsImports: { files: number; notResolved: number } | null;
+  stamped: EvidenceItem[];
   pageState: PageState;
   fix: (code: string) => string;
 }): Snapshot {
@@ -69,6 +99,16 @@ export function takeSnapshot(found: {
   const counts = new Map(m.parts.map((p) => [p.id, p]));
   const contested = new Set(m.contested.map((c) => c.path));
   const complete = found.excluded === 0;
+  const at = new Map(found.stamped.map((e) => [e.at, e]));
+  // The entry of each finding at an evidence entry with a stamp: one of
+  // the four codes, as no other finding is put there.
+  const hits = found.diagnostics.map((d) => at.get(d.at));
+  const seen = tallyKeys(hits.flatMap((e) => (e ? [entryKey(e)] : [])));
+  // Left out when an id is not of the id form, or when two findings have
+  // the same part, to and evidence.
+  const entryOf = (e: EvidenceItem | undefined) =>
+    e?.part && e.to && seen.get(entryKey(e)) === 1 && { entry: { part: e.part, to: e.to, evidence: e.evidence } };
+  const count = (i: number) => found.diagnostics.filter((d, j) => hits[j] && d.code === STAMP_CODES[i]).length;
   return {
     snapshot: SNAPSHOT_FORMAT,
     rules: RULES,
@@ -97,6 +137,9 @@ export function takeSnapshot(found: {
             toCheck: found.diagnostics.filter((d) => d.code === "import-needs-check").length,
           },
         }),
+    ...(at.size === 0
+      ? {}
+      : { stampEntries: { entries: at.size, elsewhere: count(0), differs: count(1), noLine: count(2), noFile: count(3) } }),
     owned: [...m.owners]
       .filter(([path, part]) => part !== null && !contested.has(path))
       .map(([path, part]) => ({ path, part: part!, pattern: m.wonBy.get(path)! }))
@@ -107,12 +150,13 @@ export function takeSnapshot(found: {
       .sort((a, b) => byCodeUnit(a.path, b.path)),
     unwatched: [...m.unwatched].sort(byCodeUnit),
     tasks: found.tasks.map((t) => ({ id: t.id, status: t.status, makes: t.makes, missing: t.missing })),
-    diagnostics: found.diagnostics.map((d) => ({
+    diagnostics: found.diagnostics.map((d, i) => ({
       at: d.at,
       code: d.code,
       severity: d.severity,
       message: d.message,
       fix: found.fix(d.code),
+      ...entryOf(hits[i]),
     })),
   };
 }
@@ -140,6 +184,14 @@ export function readSnapshot(text: string): Snapshot {
   const count = (v: unknown) => Number.isInteger(v) && (v as number) >= 0;
   if ("jsImports" in snapshot && (!isObj(j) || !count(j.files) || !count(j.notResolved) || !count(j.toCheck))) {
     throw new Error("its jsImports does not have the fields of a snapshot");
+  }
+  const s: unknown = snapshot.stampEntries;
+  const shaped = (e: unknown) => isObj(e) && [e.part, e.to, e.evidence].every((v) => typeof v === "string");
+  if (
+    ("stampEntries" in snapshot && !(isObj(s) && COUNT_KEYS.every((k) => Number.isSafeInteger(s[k]) && (s[k] as number) >= 0))) ||
+    snapshot.diagnostics.some((d) => "entry" in d && !shaped(d.entry))
+  ) {
+    throw new Error("its stampEntries or an entry of its diagnostics does not have the fields of a snapshot");
   }
   return snapshot;
 }
@@ -371,6 +423,39 @@ function newDirectories(head: Snapshot, base: Snapshot): string[] {
     .map((g) => `${plain(g.dir)}/: ${g.files} files went to part ${g.part} through ${plain(g.pattern)}`);
 }
 
+// The findings of evidence entries with a stamp, reported on one side only.
+function entryChanges(head: Snapshot, base: Snapshot): string[] {
+  let skipped = 0;
+  const side = (s: Snapshot) => {
+    const found = s.diagnostics.filter((d) => STAMP_CODES.includes(d.code));
+    // Not counted without an entry: no-line and no-file, which an evidence
+    // entry with no stamp has too.
+    skipped += found.filter((d) => !d.entry && d.code.includes("stamp")).length;
+    const keyed = found.flatMap((d) => (d.entry ? [[entryKey(d.entry), d.entry] as const] : []));
+    const n = tallyKeys(keyed.map(([k]) => k));
+    skipped += keyed.filter(([k]) => n.get(k)! > 1).length;
+    return new Map(keyed.filter(([k]) => n.get(k) === 1));
+  };
+  const h = side(head);
+  const b = side(base);
+  const only = (one: typeof h, other: typeof h) =>
+    [...one].filter(([k]) => !other.has(k)).map(([, e]) => `part ${plain(e.part)} to ${plain(e.to)}: ${plain(e.evidence)}`);
+  const added = only(h, b);
+  const gone = only(b, h);
+  return [
+    ...(added.length > 0 ? ["Reported in the head and not in the base:", list(added)] : []),
+    ...(gone.length > 0 ? ["Reported in the base and not in the head:", list(gone)] : []),
+    ...(added.length + gone.length > 0
+      ? []
+      : ["No entry is newly reported or no longer reported. An entry whose finding changed is not listed."]),
+    "Entries are paired only when the part id, the `to` value and the evidence string are the same; " +
+      "writing any of them differently makes another entry. That an entry is no longer reported does not mean it was fixed.",
+    ...(skipped > 0
+      ? [`${skipped} entries were not compared: their part id or \`to\` value is not of the right form, or the same entry is written more than once.`]
+      : []),
+  ];
+}
+
 export function reportText(head: Snapshot, base: Snapshot | null): string {
   const blocks = ["## codeplan", statusLine(head)];
   if (head.diagnostics.length > 0) {
@@ -398,6 +483,24 @@ export function reportText(head: Snapshot, base: Snapshot | null): string {
       "### JS and TS imports",
       `${j.files} files read, ${j.notResolved} import paths not resolved, ${j.toCheck} imports to check.${inBase}`,
     );
+  }
+  const counted = head.stampEntries;
+  const baseCounted = base?.stampEntries;
+  if (counted !== undefined || baseCounted !== undefined) {
+    blocks.push("### Evidence entries with a stamp");
+    if (counted === undefined) {
+      blocks.push(`The head snapshot does not have these counts. The base had ${baseCounted!.entries} evidence entries with a stamp.`);
+    } else {
+      const inBase = baseCounted === undefined ? "" : ` In the base: ${COUNT_KEYS.map((k) => baseCounted[k]).join(", ")}.`;
+      blocks.push(
+        `${counted.entries} evidence entries with a stamp, ${counted.elsewhere} with the stamp on one other line, ` +
+          `${counted.differs} without the stamp on the written line, ${counted.noLine} with no such line, ` +
+          `${counted.noFile} with no such file.${inBase}`,
+      );
+      if (base !== null) {
+        blocks.push(...(baseCounted === undefined ? ["The base snapshot does not have these counts, so the entries are not compared."] : entryChanges(head, base)));
+      }
+    }
   }
   if (base !== null) {
     const changed = changes(head, base);

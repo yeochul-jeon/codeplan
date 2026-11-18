@@ -16,7 +16,7 @@ import { PAGE_MARK, pageHtml } from "./page.js";
 import { raisedPicture } from "./raised.js";
 import { cachedLines, judge } from "./stamp.js";
 import { mermaidText, summaryText } from "./summary.js";
-import { diagnosePlan, diagnostic, evidenceItems, planTasks, preparePlan, type Diagnostic, type PlanTask } from "./validate.js";
+import { diagnosePlan, diagnostic, evidenceItems, planTasks, preparePlan, type Diagnostic, type EvidenceItem, type PlanTask } from "./validate.js";
 
 export interface RunResult {
   code: number;
@@ -42,6 +42,8 @@ export type CheckResult =
       // The JS and TS files read and the import paths not resolved, or null
       // when JS and TS imports are not judged.
       jsImports: { files: number; notResolved: number } | null;
+      // The evidence entries with a stamp, in plan order.
+      stamped: EvidenceItem[];
       // The page as update would write it now, or null when update would
       // not write (no plan, an error diagnostic, a contested file).
       page: { path: string; bytes: Buffer | null; current: boolean; state: PageState };
@@ -178,7 +180,7 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
     const diagnostics = [diagnostic("no-plan", "plan", `${plan} not found, so every watched file is an orphan`)];
     // No part owns a file, so no JS or TS file is read.
     const jsImports = config.languages.includes("js") ? { files: 0, notResolved: 0 } : null;
-    return { kind: "measured", config, plan: null, measured: [], measurement, diagnostics, tasks: [], excluded: 0, jsImports, page: notCompared };
+    return { kind: "measured", config, plan: null, measured: [], measurement, diagnostics, tasks: [], excluded: 0, jsImports, stamped: [], page: notCompared };
   }
   const prepared = preparePlan(file.value);
   const measurement = measure(repo, config, prepared.parts);
@@ -187,7 +189,8 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
   // The line counts of evidence files that are not measured, each read once.
   const otherLines = new Map<string, number | null>();
   // A file of stamped evidence: one read for its count and lines.
-  const stamped = new Set(evidenceItems(prepared).flatMap((item) => (item.form?.stamp ? [item.form.path] : [])));
+  const stampedItems = evidenceItems(prepared).filter((item) => item.form?.stamp);
+  const stamped = new Set(stampedItems.map((item) => item.form!.path));
   const stampLines = cachedLines(repo);
   const judged = prepared.excluded === 0 && measurement.contested.length === 0;
   const js = judged && config.languages.includes("js") ? jsFacts(repo, measurement.owners, measurement.js, isFile) : null;
@@ -228,6 +231,7 @@ export function check(repo: string, page: "compare" | "skip" | "note" = "compare
     tasks,
     excluded: prepared.excluded,
     jsImports: js === null ? null : { files: js.files, notResolved: js.notResolved },
+    stamped: stampedItems,
   };
   if (
     page === "skip" ||
@@ -458,6 +462,7 @@ function snapshotOf(repo: string): Snapshot | RunResult {
     tasks: result.tasks,
     excluded: result.excluded,
     jsImports: result.jsImports,
+    stamped: result.stamped,
     pageState: result.page.state,
     fix: (code) => fixFor(code, plan),
   });

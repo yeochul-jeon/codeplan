@@ -102,6 +102,13 @@ measured record before:
 | `not compared` | The parts and tasks are not compared here: the record before has no plan file, or one of the two has a part left out of counting. |
 | `not measured` | The record is a marker file. |
 
+`history` does not read `stampEntries` or the `entry` of a finding, so two
+records that differ only there are the same, and a record that has them in
+another form is still read. A finding of an evidence entry with a stamp
+that comes or goes changes the findings, so the record gets `plan`. The
+first record is the exception: an `info` finding alone does not make the
+plan out of date.
+
 ## Choosing a record
 
 The name in a column head is a button. It shows, under the table, what

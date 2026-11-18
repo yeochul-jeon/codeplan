@@ -2931,11 +2931,24 @@ function summaryText(value, m, tasks) {
 var SNAPSHOT_FORMAT = 1;
 var RULES = 1;
 var LIST_LIMIT = 30;
+var STAMP_CODES = ["stamp-elsewhere", "stamp-differs", "no-line", "no-file"].map((c) => `evidence-${c}`);
+var COUNT_KEYS = ["entries", "elsewhere", "differs", "noLine", "noFile"];
+var entryKey = (e) => JSON.stringify([e.part, e.to, e.evidence]);
+function tallyKeys(keys) {
+  const n = /* @__PURE__ */ new Map();
+  for (const k of keys) n.set(k, (n.get(k) ?? 0) + 1);
+  return n;
+}
 function takeSnapshot(found) {
   const { config, measurement: m } = found;
   const counts = new Map(m.parts.map((p2) => [p2.id, p2]));
   const contested = new Set(m.contested.map((c) => c.path));
   const complete = found.excluded === 0;
+  const at = new Map(found.stamped.map((e) => [e.at, e]));
+  const hits = found.diagnostics.map((d) => at.get(d.at));
+  const seen = tallyKeys(hits.flatMap((e) => e ? [entryKey(e)] : []));
+  const entryOf = (e) => e?.part && e.to && seen.get(entryKey(e)) === 1 && { entry: { part: e.part, to: e.to, evidence: e.evidence } };
+  const count2 = (i) => found.diagnostics.filter((d, j) => hits[j] && d.code === STAMP_CODES[i]).length;
   return {
     snapshot: SNAPSHOT_FORMAT,
     rules: RULES,
@@ -2962,17 +2975,19 @@ function takeSnapshot(found) {
         toCheck: found.diagnostics.filter((d) => d.code === "import-needs-check").length
       }
     },
+    ...at.size === 0 ? {} : { stampEntries: { entries: at.size, elsewhere: count2(0), differs: count2(1), noLine: count2(2), noFile: count2(3) } },
     owned: [...m.owners].filter(([path, part]) => part !== null && !contested.has(path)).map(([path, part]) => ({ path, part, pattern: m.wonBy.get(path) })).sort((a, b) => byCodeUnit2(a.path, b.path)),
     orphans: complete ? [...m.orphans].sort(byCodeUnit2) : [],
     contested: m.contested.map((c) => ({ path: c.path, parts: [...c.parts].sort(byCodeUnit2) })).sort((a, b) => byCodeUnit2(a.path, b.path)),
     unwatched: [...m.unwatched].sort(byCodeUnit2),
     tasks: found.tasks.map((t) => ({ id: t.id, status: t.status, makes: t.makes, missing: t.missing })),
-    diagnostics: found.diagnostics.map((d) => ({
+    diagnostics: found.diagnostics.map((d, i) => ({
       at: d.at,
       code: d.code,
       severity: d.severity,
       message: d.message,
-      fix: found.fix(d.code)
+      fix: found.fix(d.code),
+      ...entryOf(hits[i])
     }))
   };
 }
@@ -2995,6 +3010,11 @@ function readSnapshot(text) {
   const count2 = (v) => Number.isInteger(v) && v >= 0;
   if ("jsImports" in snapshot2 && (!isObj3(j) || !count2(j.files) || !count2(j.notResolved) || !count2(j.toCheck))) {
     throw new Error("its jsImports does not have the fields of a snapshot");
+  }
+  const s = snapshot2.stampEntries;
+  const shaped = (e) => isObj3(e) && [e.part, e.to, e.evidence].every((v) => typeof v === "string");
+  if ("stampEntries" in snapshot2 && !(isObj3(s) && COUNT_KEYS.every((k) => Number.isSafeInteger(s[k]) && s[k] >= 0)) || snapshot2.diagnostics.some((d) => "entry" in d && !shaped(d.entry))) {
+    throw new Error("its stampEntries or an entry of its diagnostics does not have the fields of a snapshot");
   }
   return snapshot2;
 }
@@ -3147,6 +3167,29 @@ function newDirectories(head, base) {
   }
   return [...groups.values()].sort((a, b) => byCodeUnit2(a.dir, b.dir) || byCodeUnit2(a.part, b.part) || byCodeUnit2(a.pattern, b.pattern)).map((g) => `${plain(g.dir)}/: ${g.files} files went to part ${g.part} through ${plain(g.pattern)}`);
 }
+function entryChanges(head, base) {
+  let skipped = 0;
+  const side = (s) => {
+    const found = s.diagnostics.filter((d) => STAMP_CODES.includes(d.code));
+    skipped += found.filter((d) => !d.entry && d.code.includes("stamp")).length;
+    const keyed = found.flatMap((d) => d.entry ? [[entryKey(d.entry), d.entry]] : []);
+    const n = tallyKeys(keyed.map(([k]) => k));
+    skipped += keyed.filter(([k]) => n.get(k) > 1).length;
+    return new Map(keyed.filter(([k]) => n.get(k) === 1));
+  };
+  const h = side(head);
+  const b = side(base);
+  const only = (one, other) => [...one].filter(([k]) => !other.has(k)).map(([, e]) => `part ${plain(e.part)} to ${plain(e.to)}: ${plain(e.evidence)}`);
+  const added = only(h, b);
+  const gone = only(b, h);
+  return [
+    ...added.length > 0 ? ["Reported in the head and not in the base:", list(added)] : [],
+    ...gone.length > 0 ? ["Reported in the base and not in the head:", list(gone)] : [],
+    ...added.length + gone.length > 0 ? [] : ["No entry is newly reported or no longer reported. An entry whose finding changed is not listed."],
+    "Entries are paired only when the part id, the `to` value and the evidence string are the same; writing any of them differently makes another entry. That an entry is no longer reported does not mean it was fixed.",
+    ...skipped > 0 ? [`${skipped} entries were not compared: their part id or \`to\` value is not of the right form, or the same entry is written more than once.`] : []
+  ];
+}
 function reportText(head, base) {
   const blocks = ["## codeplan", statusLine(head)];
   if (head.diagnostics.length > 0) {
@@ -3174,6 +3217,22 @@ function reportText(head, base) {
       "### JS and TS imports",
       `${j.files} files read, ${j.notResolved} import paths not resolved, ${j.toCheck} imports to check.${inBase}`
     );
+  }
+  const counted = head.stampEntries;
+  const baseCounted = base?.stampEntries;
+  if (counted !== void 0 || baseCounted !== void 0) {
+    blocks.push("### Evidence entries with a stamp");
+    if (counted === void 0) {
+      blocks.push(`The head snapshot does not have these counts. The base had ${baseCounted.entries} evidence entries with a stamp.`);
+    } else {
+      const inBase = baseCounted === void 0 ? "" : ` In the base: ${COUNT_KEYS.map((k) => baseCounted[k]).join(", ")}.`;
+      blocks.push(
+        `${counted.entries} evidence entries with a stamp, ${counted.elsewhere} with the stamp on one other line, ${counted.differs} without the stamp on the written line, ${counted.noLine} with no such line, ${counted.noFile} with no such file.${inBase}`
+      );
+      if (base !== null) {
+        blocks.push(...baseCounted === void 0 ? ["The base snapshot does not have these counts, so the entries are not compared."] : entryChanges(head, base));
+      }
+    }
   }
   if (base !== null) {
     const changed = changes(head, base);
@@ -4076,14 +4135,15 @@ function check(repo, page = "compare") {
     const measurement2 = measure(repo, config, []);
     const diagnostics2 = [diagnostic("no-plan", "plan", `${plan} not found, so every watched file is an orphan`)];
     const jsImports = config.languages.includes("js") ? { files: 0, notResolved: 0 } : null;
-    return { kind: "measured", config, plan: null, measured: [], measurement: measurement2, diagnostics: diagnostics2, tasks: [], excluded: 0, jsImports, page: notCompared };
+    return { kind: "measured", config, plan: null, measured: [], measurement: measurement2, diagnostics: diagnostics2, tasks: [], excluded: 0, jsImports, stamped: [], page: notCompared };
   }
   const prepared = preparePlan(file.value);
   const measurement = measure(repo, config, prepared.parts);
   const isFile = (path) => isPlainFile(repo, path);
   const tasks = planTasks(prepared, isFile);
   const otherLines = /* @__PURE__ */ new Map();
-  const stamped = new Set(evidenceItems(prepared).flatMap((item) => item.form?.stamp ? [item.form.path] : []));
+  const stampedItems = evidenceItems(prepared).filter((item) => item.form?.stamp);
+  const stamped = new Set(stampedItems.map((item) => item.form.path));
   const stampLines = cachedLines(repo);
   const judged = prepared.excluded === 0 && measurement.contested.length === 0;
   const js = judged && config.languages.includes("js") ? jsFacts(repo, measurement.owners, measurement.js, isFile) : null;
@@ -4121,7 +4181,8 @@ function check(repo, page = "compare") {
     diagnostics,
     tasks,
     excluded: prepared.excluded,
-    jsImports: js === null ? null : { files: js.files, notResolved: js.notResolved }
+    jsImports: js === null ? null : { files: js.files, notResolved: js.notResolved },
+    stamped: stampedItems
   };
   if (page === "skip" || place.kind === "other" || diagnostics.some((d) => d.severity === "error") || measurement.contested.length > 0) {
     return { ...result2, page: notCompared };
@@ -4324,6 +4385,7 @@ function snapshotOf(repo) {
     tasks: result2.tasks,
     excluded: result2.excluded,
     jsImports: result2.jsImports,
+    stamped: result2.stamped,
     pageState: result2.page.state,
     fix: (code) => fixFor(code, plan)
   });

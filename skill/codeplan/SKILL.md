@@ -203,7 +203,9 @@ it does not. Without a stamp it does not read what is on the line; with a
 stamp it looks whether the line has the stamp. To write an evidence, read
 the line and write it as `file:line`, run `stamps`, then add `#` and the
 stamp that `stamps` gives for that entry (see
-[plan file](docs/plan-file.md#stamps)).
+[plan file](docs/plan-file.md#stamps)). Pick a line whose text is in the file
+once: when two lines have the same text and the line moves, the tool cannot
+say where it went.
 
 ## What to decide yourself and what to ask
 

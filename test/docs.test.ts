@@ -205,13 +205,16 @@ describe("examples in the docs", () => {
       encoding: "utf8",
       env: { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` },
     });
-    expect(out.stdout).toBe("## codeplan\n\ncheck: ok\n\n### Tasks\n\n| Task | Status | Files |\n|---|---|---|\n| refunds | doing | 1 of 1 |\n| basket-total | done | 1 of 1 |\n\n### JS and TS imports\n\n4 files read, 0 import paths not resolved, 0 imports to check.\n");
+    expect(out.stdout).toBe("## codeplan\n\ncheck: ok\n\n### Tasks\n\n| Task | Status | Files |\n|---|---|---|\n| refunds | doing | 1 of 1 |\n| basket-total | done | 1 of 1 |\n\n### JS and TS imports\n\n4 files read, 0 import paths not resolved, 0 imports to check.\n\n### Evidence entries with a stamp\n\n1 evidence entries with a stamp, 0 with the stamp on one other line, 0 without the stamp on the written line, 0 with no such line, 0 with no such file.\n");
   });
 
   test("the snapshot fields in the CI doc are the fields snapshot prints", () => {
     const repo = makeRepo({ "package.json": lines(1), "src/a.ts": lines(1) });
     const printed = JSON.parse(run(["snapshot"], repo).stdout) as Record<string, unknown>;
-    expect(firstColumn(doc("ci.md"), "## What snapshot prints")).toEqual(Object.keys(printed));
+    // stampEntries is there only for a plan with an evidence entry with a stamp.
+    const keys = Object.keys(printed);
+    keys.splice(keys.indexOf("jsImports") + 1, 0, "stampEntries");
+    expect(firstColumn(doc("ci.md"), "## What snapshot prints")).toEqual(keys);
   });
 
   test("the SKILL.md first-plan commands keep the other keys of a codeplan.json that is already there", () => {

@@ -67,6 +67,14 @@ check: ok
 
 4 files read, 0 import paths not resolved, 0 imports to check. In the base: 3, 0, 0.
 
+### Evidence entries with a stamp
+
+1 evidence entries with a stamp, 0 with the stamp on one other line, 0 without the stamp on the written line, 0 with no such line, 0 with no such file. In the base: 1, 0, 0, 0, 0.
+
+No entry is newly reported or no longer reported. An entry whose finding changed is not listed.
+
+Entries are paired only when the part id, the `to` value and the evidence string are the same; writing any of them differently makes another entry. That an entry is no longer reported does not mean it was fixed.
+
 ### Changes
 
 | Part | Files | Lines | Change |
@@ -89,6 +97,7 @@ The blocks, in order; one that has nothing to say is left out:
 | `### Unwatched files` | Code outside the watch set. |
 | `### Tasks` | A table of the tasks: id, status and `<n> of <m>`, the number of the task's `makes` paths that are files in the repository. Files is empty for a task with no `makes`. |
 | `### JS and TS imports` | When the JS and TS imports were read (the `js` language, every part counted, no contested file): the files read, the import paths that look relative or match a `paths` key and give no file, and the `import-needs-check` lines. With `--base`, the base's three numbers follow when the base has them. It does not change the status line. |
+| `### Evidence entries with a stamp` | When the head or, with `--base`, the base snapshot has `stampEntries`: the five numbers of the head, then with `--base` the base's numbers and the entries reported on one side only. See [evidence entries with a stamp](#evidence-entries-with-a-stamp). It does not change the status line. |
 | `### Changes` | Only with `--base`: a table of the parts whose counts changed, new parts and removed parts, then a table of the tasks that changed, new tasks and removed tasks. |
 | `### New directories` | Only with `--base`: directories that had no watched file in the base and whose files went to a part through a pattern that starts above the directory. |
 
@@ -117,6 +126,49 @@ A directory note such as
 that a wide pattern took in without anyone deciding where it belongs. Files
 right at the repository root get no note.
 
+### Evidence entries with a stamp
+
+The numbers come from `stampEntries` and the lists from the `entry` of
+each finding in `diagnostics`. Four cases, with `--base`:
+
+- Both snapshots have `stampEntries`: the base's five numbers follow the
+  head's, then the entries reported in the head and not in the base, the
+  entries reported in the base and not in the head, and one paragraph on
+  how entries are paired. When both lists are empty, one sentence says that
+  no entry is newly reported or no longer reported.
+- Only the head has it: one sentence says the entries are not compared.
+  That is so for a base made by an older codeplan and for a base whose plan
+  had no stamp.
+- Only the base has it: one sentence gives the base's number of entries.
+  The head may have no stamp, no plan file, or a plan file that cannot be
+  read.
+- Neither has it: the block is left out. That means there is nothing to
+  compare, not that no evidence entry is out of place.
+
+Entries are paired by their part id, `to` value and evidence string, and by
+nothing else:
+
+- An entry in the second list was not necessarily fixed. It is there also
+  when the evidence was removed, when its stamp was taken off, or when its
+  line or stamp was written again, with or without reading the line.
+- Writing the evidence string, the part id or the `to` value differently
+  puts the old entry in the second list and, when the new string has a
+  finding again, the new one in the first. A changed name is not guessed.
+- An entry whose finding changed, such as from one other line to no such
+  line, is in neither list. The numbers can differ, or stay the same when
+  two entries change places.
+- An evidence entry with a stamp whose file is gone or shorter is compared
+  like the others. The same findings of an entry with no stamp are not
+  compared.
+- An entry is not compared when its part id or `to` value is not of the id
+  form, or when the same string is written twice in one use or in two uses
+  of a part with the same `to`. Both of the two are left out. When it is
+  written twice on one side only, the one on the other side can show up in
+  a list although nothing was added or removed. The number of findings of
+  one other line or of no stamp on the written line left out this way is
+  given in a last sentence; the left-out findings of no such line or file
+  are in the numbers only.
+
 Without `--base`, `report` prints the state alone:
 
 ```sh
@@ -139,12 +191,13 @@ they are.
 | `page` | `ok`, `outdated`, `missing`, `foreign` (something else is at the page place) or `not-checked` (no plan file, an error in it, or contested files). |
 | `parts` | The counted parts in plan file order, each with `id`, `paths`, `planned`, `files` and `lines`. |
 | `jsImports` | Only when the JS and TS imports were read (the `js` language, every part counted, no contested file): `files` (the JS and TS files read), `notResolved` (each file and import path that looks relative or matches a `paths` key and gives no file, once) and `toCheck` (the `import-needs-check` lines). A base without it is read; a base with it in another form is refused. |
+| `stampEntries` | Only when the plan has an evidence entry with a stamp: the counts of those entries. `entries` (all of them, as the `stamps` command prints them), `elsewhere` (one other line has the stamp), `differs` (the written line does not have the stamp), `noLine` (the file does not have the line) and `noFile` (no such file). `entries` is the entries with no finding plus the other four. A base without it is read; a base with it in another form is refused. |
 | `owned` | Each file counted in one part, with its `path`, `part` and the `pattern` that won it. |
 | `orphans` | The orphan files; empty when `complete` is `false`. |
 | `contested` | Each contested file with its `path` and `parts`. |
 | `unwatched` | Code outside the watch set. |
 | `tasks` | The tasks in plan file order, each with `id`, `status` (`null` when the plan file's value is not one of the three), `makes` (its paths, each once) and `missing` (those that are not files in the repository). |
-| `diagnostics` | The findings, each with `at`, `code`, `severity` (`error`, `warning` or `info`), `message` and `fix`. |
+| `diagnostics` | The findings, each with `at`, `code`, `severity` (`error`, `warning` or `info`), `message` and `fix`. A finding of an evidence entry with a stamp also has `entry`: the entry's `part`, `to` and `evidence`, as the `stamps` command prints them. It is left out when the part id or the `to` value is not of the id form, and when two such findings have the same three values. A base with an `entry` that is not three strings is refused. |
 
 Paths are in code unit order. The document holds no time and no absolute
 path, so the same tree gives the same bytes.
