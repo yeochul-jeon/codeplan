@@ -144,18 +144,18 @@
         {
           "to": "counting",
           "why": "for the measurement type and the sort order",
-          "evidence": ["src/summary.ts:4#4151eb09", "src/report.ts:147#1ff243f9"]
+          "evidence": ["src/summary.ts:4#4151eb09", "src/report.ts:154#1ff243f9"]
         },
         { "to": "page", "why": "for the theme styles and theme button of the history file", "evidence": ["src/history.ts:7#2739e5d7"] },
         {
           "to": "settings",
           "why": "for the config type and the fixed start of a pattern",
-          "evidence": ["src/report.ts:3#42c3e154", "src/report.ts:413#3ee068af"]
+          "evidence": ["src/report.ts:3#42c3e154", "src/report.ts:420#3ee068af"]
         },
         {
           "to": "plan-check",
           "why": "for the reference pattern, the task statuses, the finding types and the evidence entries",
-          "evidence": ["src/summary.ts:100#a54581c6", "src/report.ts:234#bd83e92c"]
+          "evidence": ["src/summary.ts:100#a54581c6", "src/report.ts:241#bd83e92c"]
         }
       ]
     },
