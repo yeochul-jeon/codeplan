@@ -11,28 +11,28 @@
       "start": "src/cli.ts",
       "paths": ["src/bin.ts", "src/cli.ts", "src/index.ts"],
       "uses": [
-        { "to": "settings", "why": "to read codeplan.json", "evidence": ["src/cli.ts:268#cbd0e4f2"] },
-        { "to": "draft", "why": "to run the draft command", "evidence": ["src/cli.ts:667#3cdd9f28"] },
+        { "to": "settings", "why": "to read codeplan.json", "evidence": ["src/cli.ts:272#cbd0e4f2"] },
+        { "to": "draft", "why": "to run the draft command", "evidence": ["src/cli.ts:672#3cdd9f28"] },
         {
           "to": "reports",
           "why": "to print summary, snapshot, report and history",
-          "evidence": ["src/cli.ts:527#a592687b", "src/cli.ts:487#821d5613", "src/cli.ts:517#b45b644d"]
+          "evidence": ["src/cli.ts:532#a592687b", "src/cli.ts:492#821d5613", "src/cli.ts:522#b45b644d"]
         },
         {
           "to": "imports",
           "why": "to find which part imports which",
-          "evidence": ["src/cli.ts:193#f9c6f719", "src/cli.ts:218#1ccb8be9"]
+          "evidence": ["src/cli.ts:196#f9c6f719", "src/cli.ts:221#1ccb8be9"]
         },
-        { "to": "counting", "why": "to count the files and lines of each part", "evidence": ["src/cli.ts:184#4dd09b32"] },
+        { "to": "counting", "why": "to count the files and lines of each part", "evidence": ["src/cli.ts:186#4dd09b32"] },
         {
           "to": "plan-check",
           "why": "to read plan.json, get its findings and judge evidence stamps",
-          "evidence": ["src/cli.ts:273#3542d986", "src/cli.ts:183#ad17b0f8", "src/cli.ts:194#b95b3c49", "src/cli.ts:256#2f415136"]
+          "evidence": ["src/cli.ts:277#3542d986", "src/cli.ts:185#ad17b0f8", "src/cli.ts:197#b95b3c49", "src/cli.ts:260#2f415136"]
         },
         {
           "to": "page",
           "why": "to make the page that update writes and check compares",
-          "evidence": ["src/cli.ts:319#8555f75a", "src/cli.ts:320#d1ce29f5", "src/cli.ts:337#6a63ffcc"]
+          "evidence": ["src/cli.ts:323#8555f75a", "src/cli.ts:324#d1ce29f5", "src/cli.ts:341#6a63ffcc"]
         }
       ]
     },
@@ -144,18 +144,18 @@
         {
           "to": "counting",
           "why": "for the measurement type and the sort order",
-          "evidence": ["src/summary.ts:4#4151eb09", "src/report.ts:104#1ff243f9"]
+          "evidence": ["src/summary.ts:4#4151eb09", "src/report.ts:147#1ff243f9"]
         },
         { "to": "page", "why": "for the theme styles and theme button of the history file", "evidence": ["src/history.ts:7#2739e5d7"] },
         {
           "to": "settings",
           "why": "for the config type and the fixed start of a pattern",
-          "evidence": ["src/report.ts:3#42c3e154", "src/report.ts:361#3ee068af"]
+          "evidence": ["src/report.ts:3#42c3e154", "src/report.ts:413#3ee068af"]
         },
         {
           "to": "plan-check",
-          "why": "for the reference pattern, the task statuses and the finding types",
-          "evidence": ["src/summary.ts:100#a54581c6", "src/report.ts:182#bd83e92c"]
+          "why": "for the reference pattern, the task statuses, the finding types and the evidence entries",
+          "evidence": ["src/summary.ts:100#a54581c6", "src/report.ts:234#bd83e92c"]
         }
       ]
     },
