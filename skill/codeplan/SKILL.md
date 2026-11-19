@@ -82,6 +82,15 @@ parts (default 16); `--language` and `--root` override what `draft` finds.
 layer directories, when 10 or more files start with that word; see
 [draft](docs/draft.md).
 
+Before you change `docs/codeplan/plan.json`, show the person `languages` in
+`codeplan.json`; the block removed `codeplan-draft.json`, so its `notes` are
+not there to read. If the person says the main language of the repository
+is a different one, run the block again with `--language` added to the
+`draft` line, and `--root` once for each module when the source roots are
+not at `src/main/java`. `codeplan.json` now has `languages`, so show the old
+values next to the new ones as said at the start of this section. If the
+person says the language is right, leave it.
+
 The draft's parts follow directories (and Java packages within modules).
 Its names are the ids, its descriptions are empty, and it has no `uses`,
 externals or scenarios. Those are for people to write, with your help, as
@@ -93,6 +102,13 @@ Then write the page and check:
 node docs/codeplan/codeplan.mjs update
 node docs/codeplan/codeplan.mjs check
 ```
+
+Show the person the part with the most lines in the `check` output. If its
+files look generated or copied in from elsewhere, ask whether to add them to
+`skip`; if they agree, write `skip` in `codeplan.json` and run both blocks
+again (`draft` leaves out what `skip` matches). If the part does not look
+like that, do not ask. Run the blocks again only while `plan.json` has no
+changes from you or the person: `draft` writes a new plan file over it.
 
 Commit four files: `docs/codeplan/codeplan.mjs`, `docs/codeplan/plan.json`,
 `codeplan.json` and `docs/codeplan/codeplan.html`. The page is generated, but
