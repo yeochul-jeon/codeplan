@@ -109,12 +109,12 @@
         {
           "to": "settings",
           "why": "to read the config file and compile patterns",
-          "evidence": ["src/draft.ts:405#cb02c585", "src/draft.ts:526#8848f9c4"]
+          "evidence": ["src/draft.ts:406#cb02c585", "src/draft.ts:527#8848f9c4"]
         },
         {
           "to": "counting",
           "why": "to list the files of the repository and count lines",
-          "evidence": ["src/draft.ts:433#02c73164", "src/draft.ts:450#d2b94d75"]
+          "evidence": ["src/draft.ts:434#02c73164", "src/draft.ts:451#d2b94d75"]
         }
       ]
     },
