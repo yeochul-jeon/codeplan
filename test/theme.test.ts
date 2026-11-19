@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { run } from "../src/cli.js";
-import { FRAME, THEMES } from "../src/page.js";
+import { FRAME, THEMES, ZONES } from "../src/page.js";
 import { lines, makeRepo, type Tree } from "./helpers.js";
 import { openViewer } from "./viewer-dom.js";
 
@@ -11,15 +11,21 @@ const TOKENS = [
   "--cp-zone-fill", "--cp-zone-line", "--cp-zone-title", "--cp-part-side", "--cp-edge", "--cp-connector", "--cp-active",
   "--cp-control-fill", "--cp-control-line", "--cp-control-text",
 ];
+// The zone colours of the page alone.
+const COLOURS = [1, 2, 3, 4, 5, 6];
+const ZONE_TOKENS = COLOURS.map((c) => `--cp-zone-${c}`);
+const PAGE_TOKENS = [...TOKENS, ...ZONE_TOKENS];
 const TEXT_PAIRS = [
-  ["text", "bg"], ["text", "part-fill"], ["text", "ext-fill"], ["zone-title", "zone-fill"], ["text-dim", "bg"], ["control-text", "control-fill"],
+  ["text", "bg"], ["text", "part-fill"], ["text", "ext-fill"], ["text-dim", "bg"], ["control-text", "control-fill"],
   // The raised picture.
   ["text", "part-side"], ["zone-title", "bg"],
+  ...COLOURS.map((c) => ["zone-title", `zone-${c}`]),
 ];
 const LINE_PAIRS = [
-  ["part-line", "bg"], ["part-line", "zone-fill"], ["ext-line", "bg"], ["zone-line", "bg"], ["edge", "bg"], ["edge", "zone-fill"],
-  ["connector", "bg"], ["connector", "zone-fill"], ["active", "bg"], ["active", "zone-fill"], ["active", "part-fill"], ["control-line", "bg"],
+  ["part-line", "bg"], ["ext-line", "bg"], ["zone-line", "bg"], ["edge", "bg"],
+  ["connector", "bg"], ["active", "bg"], ["active", "part-fill"], ["control-line", "bg"],
   ["part-line", "part-side"],
+  ...COLOURS.flatMap((c) => ["part-line", "edge", "connector", "active"].map((k) => [k, `zone-${c}`])),
 ];
 
 // WCAG 2 relative luminance and contrast ratio.
@@ -72,13 +78,112 @@ function pageFile(plan: unknown): string {
   return join(repo, "docs/codeplan/codeplan.html");
 }
 
+// The hue of a colour in degrees (HSL), and max - min of its channels.
+function hue(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (h * 60 + 360) % 360;
+}
+const spread = (hex: string) => {
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return Math.max(...c) - Math.min(...c);
+};
+
+// A page with one part for each entry; the entry is its zone or "".
+function zonedPage(zones: string[], extra: Record<string, unknown> = {}): string {
+  const ids = zones.map((_, i) => `p${i}`);
+  const tree: Tree = { "package.json": lines(1) };
+  for (const id of ids) tree[`src/${id}/f.ts`] = lines(2);
+  const plan = {
+    format: 1, name: "zones", about: "",
+    parts: ids.map((id, i) => ({ id, name: id, ...(zones[i] ? { zone: zones[i] } : {}), about: "", paths: [`src/${id}/**`] })),
+    ...extra,
+  };
+  const repo = makeRepo({ ...tree, "docs/codeplan/plan.json": JSON.stringify(plan) });
+  const out = run(["update"], repo);
+  expect(out.code, out.stderr).toBe(0);
+  return join(repo, "docs/codeplan/codeplan.html");
+}
+
+describe("zone colours", () => {
+  test("six opaque colours in each theme, apart in hue and away from grey, and not the background", () => {
+    for (const [name, zones] of Object.entries(ZONES)) {
+      const theme = THEMES[name as keyof typeof THEMES];
+      expect(Object.keys(zones)).toEqual(ZONE_TOKENS);
+      const values = Object.values(zones);
+      for (const value of values) {
+        expect(value).toMatch(/^#[0-9a-f]{6}$/);
+        expect(spread(value), `${name} ${value}`).toBeGreaterThanOrEqual(24);
+        expect([theme["--cp-bg"], theme["--cp-part-fill"]]).not.toContain(value);
+      }
+      for (let i = 0; i < values.length; i++) {
+        for (let j = i + 1; j < values.length; j++) {
+          const d = Math.abs(hue(values[i]!) - hue(values[j]!));
+          expect(Math.min(d, 360 - d), `${name} ${values[i]} ${values[j]}`).toBeGreaterThanOrEqual(40);
+        }
+      }
+    }
+  });
+
+  // The zone rectangles of the plane picture and the items of the list of
+  // zones, each as [zone, colour].
+  const drawn = (file: string, hash = "") => {
+    const v = openViewer(file, hash);
+    const rects = v.plane.children.filter((e) => e.getAttribute("class") === "zone").map((e) => [e.getAttribute("data-zone"), e.getAttribute("data-colour")]);
+    const items = v.zones.children.map((e) => [e.getAttribute("data-zone"), e.getAttribute("data-colour"), e.textContent]);
+    return { v, rects, items };
+  };
+
+  test("colours follow the order zones first come in the parts, not the order of the drawn zones", () => {
+    const { v, rects, items } = drawn(zonedPage(["b", "", "a", "b"]));
+    expect(v.block.layout.zones.map((z) => z.name)).toEqual(["a", "b"]);
+    expect(rects).toEqual([["a", "2"], ["b", "1"]]);
+    expect(items).toEqual([["b", "1", "b"], ["a", "2", "a"]]);
+    expect(v.plane.children.filter((e) => e.getAttribute("class") === "zone").every((e) => !e.hasAttribute("data-id"))).toBe(true);
+  });
+
+  test("no zones: no list items; one zone: colour 1; the seventh zone takes colour 1 again", () => {
+    const none = drawn(zonedPage(["", ""]));
+    expect([none.rects, none.items]).toEqual([[], []]);
+    expect(drawn(zonedPage(["only"])).items).toEqual([["only", "1", "only"]]);
+    const seven = drawn(zonedPage(["z1", "z2", "z3", "z4", "z5", "z6", "z7"]));
+    expect(seven.items.map((i) => i[1])).toEqual(["1", "2", "3", "4", "5", "6", "1"]);
+    expect(seven.rects.find((r) => r[0] === "z7")).toEqual(["z7", "1"]);
+  });
+
+  test("the list hides with the raised picture and comes back with the plane picture", () => {
+    const { v } = drawn(zonedPage(["a"]));
+    const tools = v.doc.byId.get("tools")!.children;
+    const picture = tools.find((c) => c.getAttribute("data-role") === "picture")!;
+    expect(v.zones.hasAttribute("hidden")).toBe(false);
+    picture.dispatch("click");
+    expect(v.zones.hasAttribute("hidden")).toBe(true);
+    picture.dispatch("click");
+    expect(v.zones.hasAttribute("hidden")).toBe(false);
+    expect(drawn(zonedPage(["a"]), "#picture=raised").v.zones.hasAttribute("hidden")).toBe(true);
+  });
+
+  test("a step of a walk-through leaves the zone colours as they are", () => {
+    const file = zonedPage(["a", "b"], { scenarios: [{ id: "s", name: "S", steps: [{ at: "p0", does: "x" }, { at: "p1", does: "y" }] }] });
+    const before = drawn(file).rects;
+    const { v } = drawn(file, "#scenario=s&step=2");
+    const zoneRects = v.plane.children.filter((e) => e.getAttribute("class") === "zone");
+    expect(zoneRects.map((e) => [e.getAttribute("data-zone"), e.getAttribute("data-colour")])).toEqual(before);
+    expect(zoneRects.filter((e) => e.hasAttribute("data-active"))).toEqual([]);
+    expect(v.state().rects).toEqual(["p1"]);
+  });
+});
+
 describe("theme tokens", () => {
-  test("seventeen opaque tokens in each theme, every pair above its contrast", () => {
+  test("seventeen opaque tokens in each theme, every pair above its contrast, with the zone colours too", () => {
     const mins: string[] = [];
     for (const [name, theme] of Object.entries(THEMES)) {
       expect(Object.keys(theme)).toEqual(TOKENS);
       for (const value of Object.values(theme)) expect(value).toMatch(/^#[0-9a-f]{6}$/);
-      const t = (k: string) => (theme as Record<string, string>)[`--cp-${k}`]!;
+      const all: Record<string, string> = { ...theme, ...ZONES[name as keyof typeof ZONES] };
+      const t = (k: string) => all[`--cp-${k}`]!;
       const textMin = Math.min(...TEXT_PAIRS.map(([a, b]) => contrast(t(a!), t(b!))));
       const lineMin = Math.min(...LINE_PAIRS.map(([a, b]) => contrast(t(a!), t(b!))));
       for (const [a, b] of TEXT_PAIRS) expect(contrast(t(a!), t(b!)), `${name} ${a}/${b}`).toBeGreaterThanOrEqual(4.5);
@@ -96,17 +201,19 @@ describe("theme tokens", () => {
     const frame = html.slice(0, at) + html.slice(html.indexOf("</script>", at));
     const css = frame.slice(frame.indexOf("<style>") + 7, frame.indexOf("</style>"));
 
-    const defined = [...css.matchAll(/(--cp-[a-z-]+)\s*:/g)].map((m) => m[1]!);
-    expect([...new Set(defined)].sort()).toEqual([...TOKENS].sort());
-    expect([...frame.matchAll(/--cp-[a-z-]+/g)].map((m) => m[0]).every((t) => TOKENS.includes(t))).toBe(true);
+    const defined = [...css.matchAll(/(--cp-[a-z0-9-]+)\s*:/g)].map((m) => m[1]!);
+    expect([...new Set(defined)].sort()).toEqual([...PAGE_TOKENS].sort());
+    expect([...frame.matchAll(/--cp-[a-z0-9-]+/g)].map((m) => m[0]).every((t) => PAGE_TOKENS.includes(t))).toBe(true);
     const uses = [...frame.matchAll(/var\(([^)]*)\)/g)].map((m) => m[1]!.trim());
     expect(uses.length).toBeGreaterThan(0);
-    for (const u of uses) expect(TOKENS, u).toContain(u);
+    for (const u of uses) expect(PAGE_TOKENS, u).toContain(u);
+    // The page draws with the zone colours; the zone-fill token is only defined.
+    expect(uses).not.toContain("--cp-zone-fill");
 
-    const withoutDefs = frame.replace(/--cp-[a-z-]+\s*:\s*[^;]+;/g, "");
+    const withoutDefs = frame.replace(/--cp-[a-z0-9-]+\s*:\s*[^;]+;/g, "");
     expect(withoutDefs).not.toMatch(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/);
     for (const m of withoutDefs.matchAll(/(?:^|[;{\s])(fill|stroke|color|background(?:-color)?|border(?:-color)?)\s*:\s*([^;}]+)/g)) {
-      const value = m[2]!.replace(/var\(--cp-[a-z-]+\)/g, "").replace(/\b(none|transparent|currentColor|inherit|solid|\d+(\.\d+)?px)\b/g, "").trim();
+      const value = m[2]!.replace(/var\(--cp-[a-z0-9-]+\)/g, "").replace(/\b(none|transparent|currentColor|inherit|solid|\d+(\.\d+)?px)\b/g, "").trim();
       expect(value, `${m[1]}: ${m[2]}`).toBe("");
     }
     expect(frame).not.toMatch(/transition/);
@@ -121,7 +228,11 @@ describe("theme tokens", () => {
       /html, body \{[^}]*background: var\(--cp-bg\)[^}]*color: var\(--cp-text\)/,
       /\.part \{ fill: var\(--cp-part-fill\); stroke: var\(--cp-part-line\)/,
       /\.external \{ fill: var\(--cp-ext-fill\); stroke: var\(--cp-ext-line\)/,
-      /\.zone \{ fill: var\(--cp-zone-fill\); stroke: var\(--cp-zone-line\)/,
+      /\.zone \{ stroke: var\(--cp-zone-line\)/,
+      ...COLOURS.map((c) => new RegExp(`\\.zone\\[data-colour="${c}"\\], #zones \\[data-colour="${c}"\\]::before \\{ fill: var\\(--cp-zone-${c}\\); background: var\\(--cp-zone-${c}\\); \\}`)),
+      /#zones span::before \{[^}]*border: 1px solid var\(--cp-zone-line\)/,
+      /#zones \{[^}]*color: var\(--cp-zone-title\)/,
+      /#raised \.zone \{ fill: none; \}/,
       /\.zone-title \{ fill: var\(--cp-zone-title\)/,
       /\.label \{ fill: var\(--cp-text\)/,
       /\.edge \{[^}]*stroke: var\(--cp-edge\)/,

@@ -1719,15 +1719,32 @@ var THEME_STYLE = `:root { color-scheme: light dark; ${tokens(THEMES.light)} }
 @media (prefers-color-scheme: dark) { :root:not([data-theme]) { ${tokens(THEMES.dark)} } }
 :root[data-theme="light"] { color-scheme: light; ${tokens(THEMES.light)} }
 :root[data-theme="dark"] { color-scheme: dark; ${tokens(THEMES.dark)} }`;
+var ZONES = {
+  light: { "--cp-zone-1": "#d9eaf2", "--cp-zone-2": "#e1d9f2", "--cp-zone-3": "#f2d9ea", "--cp-zone-4": "#f2e1d9", "--cp-zone-5": "#eaf2d9", "--cp-zone-6": "#d9f2e1" },
+  dark: { "--cp-zone-1": "#20323c", "--cp-zone-2": "#29203c", "--cp-zone-3": "#3c2032", "--cp-zone-4": "#3c2920", "--cp-zone-5": "#323c20", "--cp-zone-6": "#203c29" }
+};
 var STYLE = `
 ${THEME_STYLE}
+:root { ${tokens(ZONES.light)} }
+@media (prefers-color-scheme: dark) { :root:not([data-theme]) { ${tokens(ZONES.dark)} } }
+:root[data-theme="light"] { ${tokens(ZONES.light)} }
+:root[data-theme="dark"] { ${tokens(ZONES.dark)} }
 html, body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font: 13px/1.4 system-ui, sans-serif; }
 main { padding: 16px; }
 #tools { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 8px; }
 #view { display: grid; max-height: 80vh; overflow: auto; scrollbar-gutter: stable; user-select: none; -webkit-user-select: none; cursor: grab; }
 #plane, #raised { display: block; margin: auto; background: transparent; }
 #plane[hidden], #raised[hidden] { display: none; }
-.zone { fill: var(--cp-zone-fill); stroke: var(--cp-zone-line); stroke-width: 1; }
+.zone { stroke: var(--cp-zone-line); stroke-width: 1; }
+.zone[data-colour="1"], #zones [data-colour="1"]::before { fill: var(--cp-zone-1); background: var(--cp-zone-1); }
+.zone[data-colour="2"], #zones [data-colour="2"]::before { fill: var(--cp-zone-2); background: var(--cp-zone-2); }
+.zone[data-colour="3"], #zones [data-colour="3"]::before { fill: var(--cp-zone-3); background: var(--cp-zone-3); }
+.zone[data-colour="4"], #zones [data-colour="4"]::before { fill: var(--cp-zone-4); background: var(--cp-zone-4); }
+.zone[data-colour="5"], #zones [data-colour="5"]::before { fill: var(--cp-zone-5); background: var(--cp-zone-5); }
+.zone[data-colour="6"], #zones [data-colour="6"]::before { fill: var(--cp-zone-6); background: var(--cp-zone-6); }
+#zones { margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--cp-zone-title); }
+#zones:empty, #zones[hidden] { display: none; }
+#zones span::before { content: ""; display: inline-block; width: 10px; height: 10px; margin: 0 4px 0 0; border: 1px solid var(--cp-zone-line); vertical-align: -1px; }
 .zone-title { fill: var(--cp-zone-title); font-size: 12px; font-weight: 600; }
 .part { fill: var(--cp-part-fill); stroke: var(--cp-part-line); stroke-width: 1; }
 .part[data-planned] { stroke-dasharray: 6 3; }
@@ -1820,6 +1837,21 @@ var VIEWER = `
     names[planParts[i].id] = str(planParts[i].name) || planParts[i].id;
     if (planParts[i].planned === true) planned[planParts[i].id] = true;
   }
+  // The zones in the order they first come in the plan's parts; the i-th
+  // takes colour (i mod 6) + 1.
+  var zoneColour = Object.create(null);
+  var zoneOrder = [];
+  for (var y = 0; y < planParts.length; y++) {
+    var zn = str(planParts[y].zone);
+    if (zn && !(zn in zoneColour)) zoneColour[zn] = zoneOrder.push(zn) % 6 || 6;
+  }
+  var zoneList = document.getElementById("zones");
+  for (var yo = 0; yo < zoneOrder.length; yo++) {
+    var item = html("span", zoneList);
+    item.setAttribute("data-zone", zoneOrder[yo]);
+    item.setAttribute("data-colour", zoneColour[zoneOrder[yo]]);
+    item.textContent = zoneOrder[yo];
+  }
   for (var e = 0; e < planExternals.length; e++) names[planExternals[e].id] = str(planExternals[e].name) || planExternals[e].id;
   var measured = Object.create(null);
   for (var j = 0; j < data.measure.parts.length; j++) measured[data.measure.parts[j].id] = data.measure.parts[j];
@@ -1832,7 +1864,7 @@ var VIEWER = `
 
   for (var z = 0; z < layout.zones.length; z++) {
     var zone = layout.zones[z];
-    make("rect", { x: zone.x, y: zone.y, width: zone.w, height: zone.h, "class": "zone" }, plane);
+    make("rect", { x: zone.x, y: zone.y, width: zone.w, height: zone.h, "class": "zone", "data-zone": zone.name, "data-colour": zoneColour[zone.name] }, plane);
     textBox(zone.title, [zone.name], "zone-title", plane);
   }
   var rects = Object.create(null);
@@ -2021,6 +2053,8 @@ var VIEWER = `
     (name === "raised" ? plane : raisedSvg).setAttribute("hidden", "");
     (name === "raised" ? raisedSvg : plane).removeAttribute("hidden");
     pictureButton.textContent = name === "raised" ? "plane" : "raised";
+    if (name === "raised") zoneList.setAttribute("hidden", "");
+    else zoneList.removeAttribute("hidden");
     start();
   }
   setPicture("plane");
@@ -2334,6 +2368,7 @@ var FRAME = {
 <svg id="plane" data-picture="plane" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="parts of the repository"></svg>
 <svg id="raised" data-picture="raised" hidden xmlns="http://www.w3.org/2000/svg" role="img" aria-label="parts of the repository as raised rectangles"></svg>
 </div>
+<div id="zones"></div>
 <div id="tasks"></div>
 <div id="walk"></div>
 <div id="legend"></div>
