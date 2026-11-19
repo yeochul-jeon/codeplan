@@ -352,10 +352,12 @@ describe("the picture button and the fragment", () => {
     const page = readFileSync(file(), "utf8");
     const v = openViewer(file());
     const tools = v.doc.byId.get("tools")!.children;
-    expect(tools.map((c) => [c.name, c.getAttribute("data-role")])).toEqual([["button", "picture"], ["button", "theme"]]);
+    expect(tools.map((c) => [c.name, c.getAttribute("data-role")])).toEqual([
+      ["button", "zoom-in"], ["button", "zoom-out"], ["button", "fit"], ["button", "fit-width"], ["button", "picture"], ["button", "theme"],
+    ]);
     expect(v.walk.all().filter((e) => e.getAttribute("data-role") === "picture")).toEqual([]);
     const frame = page.replace(readBlock(page).raw, "");
-    expect(frame).not.toMatch(/setInterval|requestAnimationFrame|setTimeout|transition|animation|@keyframes/);
+    expect(frame).not.toMatch(/setInterval|requestAnimationFrame|setTimeout|transition|animation|@keyframes|scroll-behavior|smooth|scrollIntoView/);
     // The viewer hides a picture with the hidden attribute; this rule makes
     // the attribute take the picture away.
     expect(frame).toContain("#plane[hidden], #raised[hidden] { display: none; }");

@@ -227,6 +227,8 @@ export function expectRaisedPage(page: string, v: Viewer): void {
   // Nothing in it reacts to a pointer or a key.
   expect(inside.filter((e) => e.listeners.size > 0 || e.hasAttribute("tabindex"))).toEqual([]);
   expect(v.raised.listeners.size).toBe(0);
+  // Nor does anything in the plane picture: the frame around both has them.
+  expect(v.plane.all().filter((e) => e.listeners.size > 0 || e.hasAttribute("tabindex"))).toEqual([]);
 
   const drawn = v.raised.children.filter((e) => e.name === "g");
   expect(inside.filter((e) => e.hasAttribute("data-id"))).toEqual(drawn);

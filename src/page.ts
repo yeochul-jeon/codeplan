@@ -87,7 +87,8 @@ ${THEME_STYLE}
 html, body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font: 13px/1.4 system-ui, sans-serif; }
 main { padding: 16px; }
 #tools { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 8px; }
-#plane, #raised { display: block; width: 100%; height: auto; max-height: 80vh; background: transparent; }
+#view { display: grid; max-height: 80vh; overflow: auto; scrollbar-gutter: stable; user-select: none; -webkit-user-select: none; cursor: grab; }
+#plane, #raised { display: block; margin: auto; background: transparent; }
 #plane[hidden], #raised[hidden] { display: none; }
 .zone { fill: var(--cp-zone-fill); stroke: var(--cp-zone-line); stroke-width: 1; }
 .zone-title { fill: var(--cp-zone-title); font-size: 12px; font-weight: 600; }
@@ -285,6 +286,104 @@ const VIEWER = `
   if (data.unwatched > 0) line(data.unwatched + " unwatched files: code outside the watch set");
   if (title) document.title = title;
 
+  // The view: the shown picture at scale s in the scroll frame. Its width
+  // and height attributes are the size times s; the frame scrolls the rest.
+  var view = document.getElementById("view");
+  var S_MAX = 4;
+  var R = 1.25;
+  var scale = 1;
+  var frameWidth = -1;
+  function size() { return picture === "raised" ? raised : layout; }
+  function setScale(s) {
+    scale = s;
+    var svg = picture === "raised" ? raisedSvg : plane;
+    svg.setAttribute("width", size().width * s);
+    svg.setAttribute("height", size().height * s);
+  }
+  function smallest() { return Math.min(view.clientWidth / size().width, view.clientHeight / size().height, S_MAX); }
+  // The first state: as wide as the frame, at most 2, top left.
+  function start() {
+    frameWidth = view.clientWidth;
+    var s = Math.min(frameWidth / size().width, 2);
+    view.style.height = size().height * s + "px";
+    setScale(s);
+    view.scrollLeft = 0;
+    view.scrollTop = 0;
+  }
+  function fit() {
+    setScale(smallest());
+    view.scrollLeft = 0;
+    view.scrollTop = 0;
+  }
+  // The gap before a picture smaller than the frame on one axis.
+  function gap(f, l, s) { return Math.max(0, (f - l * s) / 2); }
+  // The drawing point at (x, y) in the frame stays there.
+  function zoomTo(s, x, y) {
+    s = Math.min(Math.max(s, smallest()), S_MAX);
+    if (s === scale) return;
+    var fw = view.clientWidth;
+    var fh = view.clientHeight;
+    var w = size().width;
+    var h = size().height;
+    var px = (view.scrollLeft + x - gap(fw, w, scale)) / scale;
+    var py = (view.scrollTop + y - gap(fh, h, scale)) / scale;
+    setScale(s);
+    view.scrollLeft = px * s + gap(fw, w, s) - x;
+    view.scrollTop = py * s + gap(fh, h, s) - y;
+  }
+  function zoomBy(f) { zoomTo(scale * f, view.clientWidth / 2, view.clientHeight / 2); }
+  function tool(role, text, title, act) {
+    var button = html("button", document.getElementById("tools"));
+    button.type = "button";
+    button.setAttribute("data-role", role);
+    button.textContent = text;
+    button.title = title;
+    button.addEventListener("click", act);
+  }
+  tool("zoom-in", "+", "Zoom in (+ key)", function () { zoomBy(R); });
+  tool("zoom-out", "\u2212", "Zoom out (- key)", function () { zoomBy(1 / R); });
+  tool("fit", "fit", "Show the whole picture (0 key)", fit);
+  tool("fit-width", "width", "Fit the picture to the width of the page", start);
+  // Ctrl or Cmd with the wheel, and a pinch on a trackpad, zoom at the
+  // pointer; the page itself never zooms from it.
+  view.addEventListener("wheel", function (event) {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    var d = event.deltaY;
+    if (d === 0) return;
+    var f = event.deltaMode === 0 ? Math.min(Math.max(Math.pow(R, -d / 100), 1 / R), R) : d < 0 ? R : 1 / R;
+    var box = view.getBoundingClientRect();
+    zoomTo(scale * f, event.clientX - box.left, event.clientY - box.top);
+  }, { passive: false });
+  // A drag with the mouse or a pen moves the picture after 4px.
+  var drag = null;
+  view.addEventListener("pointerdown", function (event) {
+    var box = view.getBoundingClientRect();
+    if (event.button !== 0 || (event.pointerType !== "mouse" && event.pointerType !== "pen")) return;
+    if (event.clientX - box.left >= view.clientWidth || event.clientY - box.top >= view.clientHeight) return;
+    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: view.scrollLeft, top: view.scrollTop, on: false };
+  });
+  view.addEventListener("pointermove", function (event) {
+    if (drag === null || event.pointerId !== drag.id) return;
+    var dx = event.clientX - drag.x;
+    var dy = event.clientY - drag.y;
+    if (!drag.on) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 4) return;
+      drag.on = true;
+      view.setPointerCapture(drag.id);
+    }
+    view.scrollLeft = drag.left - dx;
+    view.scrollTop = drag.top - dy;
+  });
+  function stopDrag() { drag = null; }
+  view.addEventListener("pointerup", stopDrag);
+  view.addEventListener("pointercancel", stopDrag);
+  window.addEventListener("resize", function () {
+    if (view.clientWidth === frameWidth) return;
+    start();
+    if (current !== null) reach();
+  });
+
   // The picture button: one picture shows at a time, and the button names
   // the other one.
   var pictureButton = html("button", document.getElementById("tools"));
@@ -293,10 +392,12 @@ const VIEWER = `
   pictureButton.title = "Show the other picture of the plan";
   var picture;
   function setPicture(name) {
+    if (name === picture) return;
     picture = name;
     (name === "raised" ? plane : raisedSvg).setAttribute("hidden", "");
     (name === "raised" ? raisedSvg : plane).removeAttribute("hidden");
     pictureButton.textContent = name === "raised" ? "plane" : "raised";
+    start();
   }
   setPicture("plane");
   // The raised picture ends a walk-through and a chosen task, and its
@@ -480,10 +581,28 @@ ${THEME_BUTTON}
         }
       }
     }
+    reach();
     stepText.textContent = (k + 1) + "/" + steps.length + " " + (names[at] || at) + ": " + fill(steps[k].does);
     prev.disabled = k === 0;
     next.disabled = k === steps.length - 1;
     if (!keep) setHash("scenario=" + scenario.id + "&step=" + (k + 1));
+  }
+  // When the rectangle of the step is not all in the frame, the frame
+  // scrolls on each axis where it is not: by the least, 16px in, or to
+  // the middle or the start when it does not fit.
+  function axis(key, f, l, at, len) {
+    var a = at * scale + gap(f, l, scale) - view[key];
+    var b = a + len * scale;
+    if (a >= 0 && b <= f) return;
+    var to = b - a <= f - 32 ? (a < 0 ? 16 : f - 16 - (b - a)) : Math.max(0, (f - (b - a)) / 2);
+    view[key] += a - to;
+  }
+  function reach() {
+    var steps = scenarios[current.index].steps || [];
+    var el = steps.length > 0 ? rects[steps[current.step].at] : null;
+    if (!el) return;
+    axis("scrollLeft", view.clientWidth, layout.width, Number(el.getAttribute("x")), Number(el.getAttribute("width")));
+    axis("scrollTop", view.clientHeight, layout.height, Number(el.getAttribute("y")), Number(el.getAttribute("height")));
   }
   function open(index, step, fromHash) {
     setPicture("plane");
@@ -512,6 +631,11 @@ ${THEME_BUTTON}
     show();
   }
   document.addEventListener("keydown", function (event) {
+    if (!event.altKey && !event.ctrlKey && !event.metaKey && document.activeElement !== select) {
+      if (event.key === "+" || event.key === "=") zoomBy(R);
+      else if (event.key === "-") zoomBy(1 / R);
+      else if (event.key === "0") fit();
+    }
     if (current === null) {
       if (chosen !== null && event.key === "Escape" && !event.altKey && !event.ctrlKey && !event.metaKey) endTask();
       return;
@@ -576,8 +700,8 @@ export const FRAME = {
     `<meta name="viewport" content="width=device-width, initial-scale=1">\n` +
     `<title>codeplan</title>\n<style>${STYLE}</style>\n<script>${EARLY}</script>\n</head>\n<body>\n<main>\n` +
     `<div id="tools"></div>\n` +
-    `<svg id="plane" data-picture="plane" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="parts of the repository"></svg>\n` +
-    `<svg id="raised" data-picture="raised" hidden xmlns="http://www.w3.org/2000/svg" role="img" aria-label="parts of the repository as raised rectangles"></svg>\n` +
+    `<div id="view">\n<svg id="plane" data-picture="plane" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="parts of the repository"></svg>\n` +
+    `<svg id="raised" data-picture="raised" hidden xmlns="http://www.w3.org/2000/svg" role="img" aria-label="parts of the repository as raised rectangles"></svg>\n</div>\n` +
     `<div id="tasks"></div>\n<div id="walk"></div>\n<div id="legend"></div>\n</main>\n`,
   tail: `\n<script>${VIEWER}</script>\n</body>\n</html>\n`,
 };
