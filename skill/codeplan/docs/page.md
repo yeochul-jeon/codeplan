@@ -15,7 +15,12 @@ and `check` refuse to touch it.
   three lines: the name (or the id when the name is empty), the line count
   and the file count. A planned part has a dashed border, and its third
   line is the word `planned`.
-- A frame for each `zone`, with its name, around the zone's parts.
+- A frame for each `zone`, with its name, around the zone's parts. Each
+  frame has a pale colour of its own: the zones take six colours in the
+  order they first come in the plan's parts, and the seventh zone takes the
+  first colour again. A list under the picture shows each zone's colour and
+  name. The colours tell zones apart and nothing else; a highlight is a
+  border.
 - One rectangle for each external, below the parts, labelled with its name
   and the word `external`.
 - A line for each use, with an arrow at the part or external that is used.
@@ -108,7 +113,8 @@ closes the walk-through, wherever the focus is except on the select box.
 Keys pressed with Alt, Ctrl or Meta are left to the browser. Choosing
 `(none)` again also closes it. A scenario with no steps opens with a line
 saying so. Nothing moves on its own; a highlight is a colour and a thicker
-line.
+line. When the rectangle of the step is outside the frame of the picture,
+the frame scrolls to it at once (see [Zooming and moving](#zooming-and-moving)).
 
 The address carries the place: `#scenario=<id>&step=<k>` (k starts at 1)
 opens that step, and changing it later opens the new place. A `step` that
@@ -144,13 +150,51 @@ are not the places of the plane picture.
 
 Showing the raised picture ends an open walk-through and a chosen task.
 Choosing a scenario or a task while the raised picture shows goes to the
-plane picture and opens it there. Nothing in the raised picture reacts to
-the pointer or a key, and Esc does nothing while it shows.
+plane picture and opens it there. No shape in the raised picture reacts to
+the pointer or a key, and Esc does nothing while it shows. Zooming and
+moving work as in the plane picture. The zones of the raised picture have
+no colour, and the list of zones hides while it shows.
 
 The address carries the picture: `#picture=raised` opens the page with the
 raised picture. A fragment with a `scenario` or `task` key opens the plane
 picture, whatever `picture` says. The button replaces the fragment without
 adding to the browser history, and going to the plane picture removes it.
+
+## Zooming and moving
+
+The picture sits in a frame as wide as the page. It opens as wide as the
+frame, at most twice its drawn size, with its top left corner in view. The
+frame is as high as the picture, at most 80% of the window; the rest of a
+tall picture is below and comes into view by scrolling the frame.
+
+Four buttons above the picture change what the frame shows:
+
+- `+` and `−` zoom in and out by 1.25 around the middle of the frame, from
+  the size that shows the whole picture up to four times the drawn size;
+- `fit` shows the whole picture;
+- `width` goes back to the size the page opened with.
+
+The keys `+` (or `=`), `-` and `0` do what `+`, `−` and `fit` do, wherever
+the focus is except on the scenario select box. With Alt, Ctrl or Meta they
+are left to the browser, so Ctrl and `+` still zoom the whole page.
+
+Ctrl or Cmd with the mouse wheel zooms around the pointer, and so does a
+pinch on a trackpad; the page itself does not zoom then. Safari may not
+pass a pinch to the page this way; there a pinch zooms the whole page.
+
+The wheel alone and a swipe on a trackpad scroll the frame; when the frame
+cannot go further that way, the page scrolls. A drag with the mouse moves
+the picture once the pointer has moved 4 pixels. Text in the picture cannot
+be selected.
+
+Showing the other picture, and a change of the window width, open the
+picture as it opened at first; a change of the window height alone does
+not. When a step of a walk-through is outside the frame, the frame scrolls
+once: by the least that brings the step's rectangle 16 pixels inside, or,
+when the rectangle is too large for that, to put it in the middle, or its
+left and top sides at the left and top of the frame. The view is not kept:
+the address, the browser history and the page file do not change, and the
+page opens afresh each time.
 
 ## Themes
 
@@ -171,7 +215,7 @@ Every colour on the page is one of these tokens:
 | `--cp-part-line` | part rectangle borders |
 | `--cp-ext-fill` | external rectangles |
 | `--cp-ext-line` | external rectangle borders |
-| `--cp-zone-fill` | zone frames |
+| `--cp-zone-fill` | nothing on the page; it is still defined |
 | `--cp-zone-line` | zone frame borders |
 | `--cp-zone-title` | zone names |
 | `--cp-part-side` | the sides of raised rectangles |
@@ -181,9 +225,16 @@ Every colour on the page is one of these tokens:
 | `--cp-control-fill` | buttons and the select box |
 | `--cp-control-line` | their borders, the box of a task's bar |
 | `--cp-control-text` | their text |
+| `--cp-zone-1` | zone frames and their marks in the list of zones, first colour |
+| `--cp-zone-2` | second zone colour |
+| `--cp-zone-3` | third zone colour |
+| `--cp-zone-4` | fourth zone colour |
+| `--cp-zone-5` | fifth zone colour |
+| `--cp-zone-6` | sixth zone colour |
 
 In both themes, text has a contrast of at least 4.5:1 with its background
-and lines at least 3:1.
+and lines at least 3:1, also on each zone colour. The zone colours are at
+least 40 degrees apart in hue.
 
 ## When the page is out of date
 

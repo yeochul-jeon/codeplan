@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { COMMANDS, OPTIONS, run } from "../src/cli.js";
 import { KEYS } from "../src/config.js";
-import { THEMES } from "../src/page.js";
+import { THEMES, ZONES } from "../src/page.js";
 import { diagnosePlan, KNOWN, preparePlan, SEVERITY } from "../src/validate.js";
 import { lines, makeRepo, tempDir, writeTree } from "./helpers.js";
 
@@ -56,9 +56,10 @@ describe("names in the code and in the docs", () => {
     expect(sorted(firstColumn(doc("plan-file.md"), "## Fields"))).toEqual(sorted(Object.values(KNOWN).flat()));
   });
   test("theme tokens", () => {
-    expect(sorted(firstColumn(doc("page.md"), "## Themes"))).toEqual(sorted(Object.keys(THEMES.light)));
-    const all = DOCS.flatMap((f) => [...read(f).matchAll(/--cp-[a-z-]+/g)].map((m) => m[0]));
-    for (const token of all) expect(Object.keys(THEMES.light)).toContain(token);
+    const tokens = [...Object.keys(THEMES.light), ...Object.keys(ZONES.light)];
+    expect(sorted(firstColumn(doc("page.md"), "## Themes"))).toEqual(sorted(tokens));
+    const all = DOCS.flatMap((f) => [...read(f).matchAll(/--cp-[a-z0-9-]+/g)].map((m) => m[0]));
+    for (const token of all) expect(tokens).toContain(token);
   });
   test("every --option named in the docs exists", () => {
     const named = DOCS.flatMap((f) => [...read(f).matchAll(/`(--[a-z][a-z-]*)/g)].map((m) => m[1]!));

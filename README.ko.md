@@ -170,6 +170,8 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
   `check`가 한 번 outdated로 알립니다. `update`를 돌리십시오.
 - 높이 그림을 더한 `codeplan.mjs`는 모든 page를 다르게 쓰므로,
   `update`를 돌릴 때까지 `check`가 page마다 outdated로 알립니다.
+- 확대·축소와 zone 색을 더한 `codeplan.mjs`는 모든 page를 다르게 쓰므로,
+  `update`를 돌릴 때까지 `check`가 page마다 outdated로 알립니다.
 
 ## codeplan 개발
 
