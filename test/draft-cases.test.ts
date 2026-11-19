@@ -1907,10 +1907,88 @@ const CASES: Case[] = [
     config: { languages: ["java"], watch: [...JAVA_WATCH, res("**/*Mapper.xml"), res("**/mapper/**/*.xml")] },
     mappers: { rest: 1, restFiles: [res("mapper/EmptyNs.xml")] },
   },
+
+  // ---- java files a draft without java does not measure ----
+  {
+    name: "more java files than measured files, no build file (default): a note",
+    tree: "modA/source/a/A.java 2\nmodA/source/a/B.java 2\nmodB/source/b/C.java 2\nweb/vendor/x.js 1",
+    languages: ["js"],
+    languageSource: "default",
+    parts: [["web-vendor", ["web/vendor/**"], "web", 1, 1]],
+    total: [1, 1],
+    config: { languages: ["js"] },
+    notes: { "unmeasured-java": { files: 3 } },
+  },
+  {
+    name: "more java files than measured files, package.json only (detected): a note",
+    tree: "package.json 1\nlib/A.java 1\nlib/B.kt 1\nweb/app.ts 1",
+    languages: ["js"],
+    languageSource: "detected",
+    parts: [["web", ["web/**"], "web", 1, 1]],
+    total: [1, 1],
+    config: { languages: ["js"] },
+    notes: { "unmeasured-java": { files: 2 } },
+  },
+  {
+    name: "more java files, but js on the command line: no note",
+    tree: "modA/source/a/A.java 2\nmodA/source/a/B.java 2\nmodB/source/b/C.java 2\nweb/vendor/x.js 1",
+    args: ["--language", "js"],
+    languages: ["js"],
+    languageSource: "command line",
+    parts: [["web-vendor", ["web/vendor/**"], "web", 1, 1]],
+    total: [1, 1],
+    config: { languages: ["js"] },
+  },
+  {
+    name: "more java files, but languages in the config: no note",
+    tree: "modA/source/a/A.java 2\nmodA/source/a/B.java 2\nmodB/source/b/C.java 2\nweb/vendor/x.js 1",
+    existing: { languages: ["js"] },
+    languages: ["js"],
+    languageSource: "codeplan.json",
+    parts: [["web-vendor", ["web/vendor/**"], "web", 1, 1]],
+    total: [1, 1],
+    config: { languages: ["js"] },
+  },
+  {
+    name: "fewer java files than measured files: no note",
+    tree: "web/a.js 1\nweb/b.js 1\nlib/A.java 1",
+    languages: ["js"],
+    languageSource: "default",
+    parts: [["web", ["web/**"], "web", 2, 2]],
+    total: [2, 2],
+    config: { languages: ["js"] },
+  },
+  {
+    name: "as many java files as measured files: no note",
+    tree: "web/a.js 1\nlib/A.java 1",
+    languages: ["js"],
+    languageSource: "default",
+    parts: [["web", ["web/**"], "web", 1, 1]],
+    total: [1, 1],
+    config: { languages: ["js"] },
+  },
+  {
+    name: "java files under skip are not counted: no note",
+    tree: "web/a.js 1\ngen/A.java 1\ngen/B.java 1\nlib/C.java 1",
+    existing: { skip: ["gen/**"] },
+    languages: ["js"],
+    languageSource: "default",
+    parts: [["web", ["web/**"], "web", 1, 1]],
+    total: [1, 1],
+    config: { languages: ["js"] },
+  },
 ];
 
 describe("draft on fixed trees", () => {
   test.each(CASES.map((c) => [c.name, c] as const))("%s", (_name, c) => runCase(c));
+});
+
+test("the note on unmeasured java files names its count and the options to use", () => {
+  const repo = writeRepo(tree("modA/source/a/A.java 2\nmodA/source/a/B.kt 2\nmodB/source/b/C.java 2\nweb/vendor/x.js 1"));
+  const note = runDraft(repo).notes.at(-1)!;
+  expect(note).toMatchObject({ code: "unmeasured-java", files: 3 });
+  expect(note.message).toContain("--language java");
+  expect(note.message).toContain("--root");
 });
 
 describe("draft errors and follow-up checks", () => {

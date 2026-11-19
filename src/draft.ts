@@ -30,7 +30,8 @@ export type Note =
   | { code: "parts-by-name"; parts: number; files: number; message: string }
   | { code: "no-parts-by-name"; message: string }
   | { code: "exact-paths"; files: number; message: string }
-  | { code: "build-output"; files: number; message: string };
+  | { code: "build-output"; files: number; message: string }
+  | { code: "unmeasured-java"; files: number; message: string };
 
 export interface DraftPart {
   id: string;
@@ -1003,6 +1004,22 @@ export function draft(repo: string, options: DraftOptions): Draft {
     sources: { languages: languageSource, ...(rootSource ? { roots: rootSource } : {}) },
     notes,
   };
+  // Java files a draft without java does not measure (§8.13): an estimate.
+  const javaFiles =
+    java || languageSource === "command line" || languageSource === "codeplan.json"
+      ? 0
+      : all.filter(
+          (p) => ["java", "kt"].includes(extensionOf(p)) && !rules.excluded(p) && !rules.inBuildOutput(p),
+        ).length;
+  if (javaFiles > result.measure.files) {
+    notes.push({
+      code: "unmeasured-java",
+      files: javaFiles,
+      message:
+        `${javaFiles} .java and .kt files are not measured (${result.measure.files} files are); ` +
+        "for Java, run draft with --language java and --root for each source root",
+    });
+  }
   if (java) {
     result.modules = sorted(modules.map(moduleName));
     result.mappers = mappers;

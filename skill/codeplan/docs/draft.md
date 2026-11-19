@@ -161,3 +161,4 @@ took, and a count of the files outside the mapper patterns.
 | `layers` | At least half of the Java and Kotlin files sit in directories named like layers (`controller`, `service`, …); the parts follow packages, not layers. |
 | `exact-paths` | Files outside modules are listed in `watch` one by one; a directory pattern can replace them. |
 | `build-output` | Files under build-output names are counted because the written `watch` reaches them. |
+| `unmeasured-java` | No language was given and more `.java` and `.kt` files are found than files measured; `files` is their count. Run `draft` again with `--language java` and `--root`. |

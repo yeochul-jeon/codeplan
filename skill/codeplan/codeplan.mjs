@@ -1645,6 +1645,16 @@ function draft(repo, options) {
     sources: { languages: languageSource, ...rootSource ? { roots: rootSource } : {} },
     notes
   };
+  const javaFiles = java || languageSource === "command line" || languageSource === "codeplan.json" ? 0 : all.filter(
+    (p2) => ["java", "kt"].includes(extensionOf(p2)) && !rules.excluded(p2) && !rules.inBuildOutput(p2)
+  ).length;
+  if (javaFiles > result2.measure.files) {
+    notes.push({
+      code: "unmeasured-java",
+      files: javaFiles,
+      message: `${javaFiles} .java and .kt files are not measured (${result2.measure.files} files are); for Java, run draft with --language java and --root for each source root`
+    });
+  }
   if (java) {
     result2.modules = sorted(modules.map(moduleName));
     result2.mappers = mappers;
