@@ -1004,7 +1004,7 @@ export function draft(repo: string, options: DraftOptions): Draft {
     sources: { languages: languageSource, ...(rootSource ? { roots: rootSource } : {}) },
     notes,
   };
-  // Java files a draft without java does not measure (§8.13): an estimate.
+  // Java files a draft without java does not measure: an estimate.
   const javaFiles =
     java || languageSource === "command line" || languageSource === "codeplan.json"
       ? 0
