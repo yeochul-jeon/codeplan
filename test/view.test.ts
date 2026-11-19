@@ -5,7 +5,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { pageHtml } from "../src/page.js";
+import { FRAME, pageHtml } from "../src/page.js";
 import { tempDir } from "./helpers.js";
 import { openViewer, type Viewer } from "./viewer-dom.js";
 
@@ -85,6 +85,25 @@ const TALL = { W: 1000, H: 4000 };
 const WIDE = { W: 2000, H: 500 };
 // Small: 100 x 50, at 2 (the first scale is at most 2), frame 100 high.
 const SMALL = { W: 100, H: 50 };
+
+// The fake DOM makes the frame and the list of zones itself, so the page's
+// own markup and rules for them are checked here.
+describe("the frame in the page", () => {
+  test("the frame holds both pictures, and the list of zones comes after it, before the tasks", () => {
+    const head = FRAME.head;
+    const places = ['<div id="view">', '<svg id="plane"', '<svg id="raised"', "</svg>\n</div>", '<div id="zones"></div>', '<div id="tasks">'].map((t) => head.indexOf(t));
+    expect(places.every((p) => p >= 0)).toBe(true);
+    expect([...places].sort((a, b) => a - b)).toEqual(places);
+  });
+
+  test("the frame scrolls, keeps room for a scroll bar and is at most 80% of the window high; the pictures have no size of their own in CSS", () => {
+    const css = FRAME.head.slice(FRAME.head.indexOf("<style>"), FRAME.head.indexOf("</style>"));
+    expect(css).toContain("#view { display: grid; max-height: 80vh; overflow: auto; scrollbar-gutter: stable; user-select: none;");
+    expect(css).toContain("#plane, #raised { display: block; margin: auto; background: transparent; }");
+    expect(css).toContain("#zones:empty, #zones[hidden] { display: none; }");
+    expect(css).not.toMatch(/#plane, #raised \{[^}]*(width|height)/);
+  });
+});
 
 describe("the first state", () => {
   test("a tall picture is as wide as the frame, top left, in a frame 80% of the window high", () => {
@@ -401,6 +420,13 @@ describe("the rectangle of a scenario step", () => {
     expect(at(v)).toEqual([0, 800]);
     v.press("ArrowLeft");
     expect(at(v)).toEqual([0, 1696]);
+  });
+
+  test("a rectangle that fits the frame but not with 16px on each side goes to the middle", () => {
+    // d at 0.8: from 1600 to 2380, 780 high in a frame 800 high.
+    const v = open(pageFile({ ...TALL, parts: [{ id: "d", x: 100, y: 2000, w: 200, h: 975 }], steps: ["d"] }));
+    v.choose(1);
+    expect(at(v)).toEqual([0, 1600 - 10]);
   });
 
   test("zoomed in, only the axis that is out moves, and the scale stays", () => {
