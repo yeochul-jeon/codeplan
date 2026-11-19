@@ -400,6 +400,7 @@ const VIEWER = `
   });
   view.addEventListener("pointermove", function (event) {
     if (drag === null || event.pointerId !== drag.id) return;
+    if (!(event.buttons & 1)) return stopDrag();
     var dx = event.clientX - drag.x;
     var dy = event.clientY - drag.y;
     if (!drag.on) {

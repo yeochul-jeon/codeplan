@@ -264,6 +264,15 @@ describe("the drag", () => {
     expect([v.view().left, v.view().top]).toEqual([200, 100]);
   });
 
+  test("a move with the main button up ends the drag: a press left without its release moves nothing later", () => {
+    const v = zoomedIn();
+    v.pointer("pointerdown", down);
+    v.pointer("pointermove", { clientX: 266, clientY: 280, buttons: 0 });
+    expect([v.view().left, v.view().top, v.frame.captured]).toEqual([100, 100, null]);
+    v.pointer("pointermove", { clientX: 216, clientY: 240 });
+    expect([v.view().left, v.view().top]).toEqual([100, 100]);
+  });
+
   test("pointercancel ends the drag", () => {
     const v = zoomedIn();
     v.pointer("pointerdown", down);

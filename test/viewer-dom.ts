@@ -120,6 +120,7 @@ export interface Wheel {
 
 export interface Pointer {
   button?: number;
+  buttons?: number;
   pointerType?: string;
   pointerId?: number;
   clientX?: number;
@@ -275,7 +276,7 @@ export function openViewer(
       return { prevented };
     },
     pointer(type, event) {
-      frame.dispatch(type, { button: 0, pointerType: "mouse", pointerId: 1, clientX: 0, clientY: 0, ...event });
+      frame.dispatch(type, { button: 0, buttons: 1, pointerType: "mouse", pointerId: 1, clientX: 0, clientY: 0, ...event });
     },
     resize(width, height) {
       frame.width = width;
