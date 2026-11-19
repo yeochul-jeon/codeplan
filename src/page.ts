@@ -360,13 +360,13 @@ const VIEWER = `
     var fh = view.clientHeight;
     var w = size().width;
     var h = size().height;
-    var px = (view.scrollLeft + x - gap(fw, w, scale)) / scale;
-    var py = (view.scrollTop + y - gap(fh, h, scale)) / scale;
+    var drawX = (view.scrollLeft + x - gap(fw, w, scale)) / scale;
+    var drawY = (view.scrollTop + y - gap(fh, h, scale)) / scale;
     setScale(s);
-    view.scrollLeft = px * s + gap(fw, w, s) - x;
-    view.scrollTop = py * s + gap(fh, h, s) - y;
+    view.scrollLeft = drawX * s + gap(fw, w, s) - x;
+    view.scrollTop = drawY * s + gap(fh, h, s) - y;
   }
-  function zoomBy(f) { zoomTo(scale * f, view.clientWidth / 2, view.clientHeight / 2); }
+  function stepScale(f) { zoomTo(scale * f, view.clientWidth / 2, view.clientHeight / 2); }
   function tool(role, text, title, act) {
     var button = html("button", document.getElementById("tools"));
     button.type = "button";
@@ -375,8 +375,8 @@ const VIEWER = `
     button.title = title;
     button.addEventListener("click", act);
   }
-  tool("zoom-in", "+", "Zoom in (+ key)", function () { zoomBy(R); });
-  tool("zoom-out", "\u2212", "Zoom out (- key)", function () { zoomBy(1 / R); });
+  tool("zoom-in", "+", "Zoom in (+ key)", function () { stepScale(R); });
+  tool("zoom-out", "\u2212", "Zoom out (- key)", function () { stepScale(1 / R); });
   tool("fit", "fit", "Show the whole picture (0 key)", fit);
   tool("fit-width", "width", "Fit the picture to the width of the page", start);
   // Ctrl or Cmd with the wheel, and a pinch on a trackpad, zoom at the
@@ -670,8 +670,8 @@ ${THEME_BUTTON}
   }
   document.addEventListener("keydown", function (event) {
     if (!event.altKey && !event.ctrlKey && !event.metaKey && document.activeElement !== select) {
-      if (event.key === "+" || event.key === "=") zoomBy(R);
-      else if (event.key === "-") zoomBy(1 / R);
+      if (event.key === "+" || event.key === "=") stepScale(R);
+      else if (event.key === "-") stepScale(1 / R);
       else if (event.key === "0") fit();
     }
     if (current === null) {
