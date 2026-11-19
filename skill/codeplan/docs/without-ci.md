@@ -128,8 +128,13 @@ alone. List them in `.git/info/exclude`, which works as `.gitignore` does
 but is not committed:
 
 ```sh
-printf '%s\n' docs/codeplan/ codeplan.json >> .git/info/exclude
+printf '%s\n' docs/codeplan/ codeplan.json >> "$(git rev-parse --git-common-dir)/info/exclude"
 ```
+
+The command finds the list with `git rev-parse --git-common-dir`, so it also
+works in a worktree made with `git worktree add`, where `.git` is a file.
+Every worktree of the repository uses the same list: lines written from one
+apply to all.
 
 - git does not track the files, so `git pull` and a change of branch leave
   them where they are. codeplan reads the disk and not git's list of files,

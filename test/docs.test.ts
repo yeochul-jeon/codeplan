@@ -7,7 +7,7 @@ import { COMMANDS, OPTIONS, run } from "../src/cli.js";
 import { KEYS } from "../src/config.js";
 import { THEMES } from "../src/page.js";
 import { diagnosePlan, KNOWN, preparePlan, SEVERITY } from "../src/validate.js";
-import { lines, makeRepo } from "./helpers.js";
+import { lines, makeRepo, tempDir, writeTree } from "./helpers.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const skill = join(root, "skill/codeplan");
@@ -291,6 +291,29 @@ describe("the examples for use without CI", () => {
     expect(status()).not.toMatch(/codeplan/);
     expect(status()).toContain("src/pay/charge.ts");
     expect(run(["check"], repo).code).toBe(0);
+  });
+
+  test("the exclude line hides the four files from git in a worktree", () => {
+    const git = (cwd: string, ...args: string[]) => spawnSync("git", args, { cwd, encoding: "utf8" });
+    const repo = makeRepo({ "package.json": lines(1), "src/cart/index.ts": lines(4), "src/cart/checkout.ts": lines(14), "src/pay/charge.ts": lines(9) });
+    expect(git(repo, "init", "-q").status).toBe(0);
+    expect(git(repo, "add", ".").status).toBe(0);
+    expect(git(repo, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "code").status).toBe(0);
+    const worktree = join(tempDir(), "wt");
+    const added = git(repo, "worktree", "add", "-q", worktree);
+    expect(added.status, added.stderr).toBe(0);
+    writeTree(worktree, {
+      "codeplan.json": "{}\n",
+      "docs/codeplan/plan.json": /```json\n([\s\S]*?)```/.exec(doc("plan-file.md"))![1]!,
+      "docs/codeplan/codeplan.mjs": read(join(skill, "codeplan.mjs")),
+    });
+    expect(run(["update"], worktree).code).toBe(0);
+    const status = () => git(worktree, "status", "--porcelain", "--untracked-files=all").stdout;
+    expect(status()).toContain("docs/codeplan/codeplan.html");
+    const block = sh(worktree, "-e", "-c", firstBlock("## When the plan cannot be committed"));
+    expect(block.status, block.stderr).toBe(0);
+    expect(status()).not.toMatch(/codeplan/);
+    expect(run(["check"], worktree).code).toBe(0);
   });
 
   test("the schedule script leaves one record for each run, and history reads them", () => {
