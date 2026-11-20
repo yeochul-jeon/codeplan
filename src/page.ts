@@ -117,7 +117,6 @@ main { padding: 16px; }
 .external { fill: var(--cp-ext-fill); stroke: var(--cp-ext-line); stroke-width: 1; stroke-dasharray: 4 2; }
 .label { fill: var(--cp-text); font-size: 12px; }
 .name { font-weight: 600; }
-#raised .zone { fill: none; }
 .side { fill: var(--cp-part-side); stroke: var(--cp-part-line); stroke-width: 1; stroke-linejoin: round; }
 .top { fill: var(--cp-part-fill); stroke: var(--cp-part-line); stroke-width: 1; stroke-linejoin: round; }
 g[data-planned] .side, g[data-planned] .top { stroke-dasharray: 6 3; }
@@ -292,12 +291,16 @@ const VIEWER = `
       var c = corners[i];
       out.push((px[0] * c[0] + px[1] * c[1] + px[2] * c[2] + px[3]) + "," + (py[0] * c[0] + py[1] * c[1] + py[2] * c[2] + py[3]));
     }
-    make("polygon", { points: out.join(" "), "class": cls }, parent);
+    return make("polygon", { points: out.join(" "), "class": cls }, parent);
   }
   function level(b, z) {
     return [[b.x, b.y, z], [b.x + b.w, b.y, z], [b.x + b.w, b.y + b.h, z], [b.x, b.y + b.h, z]];
   }
-  for (var rz = 0; rz < raised.zones.length; rz++) face(level(raised.zones[rz], 0), "zone", raisedSvg);
+  for (var rz = 0; rz < raised.zones.length; rz++) {
+    var ground = face(level(raised.zones[rz], 0), "zone", raisedSvg);
+    ground.setAttribute("data-zone", raised.zones[rz].name);
+    ground.setAttribute("data-colour", zoneColour[raised.zones[rz].name]);
+  }
   var raisedParts = Object.create(null);
   for (var rp = 0; rp < raised.parts.length; rp++) raisedParts[raised.parts[rp].id] = raised.parts[rp];
   var raisedExternals = Object.create(null);
@@ -441,8 +444,6 @@ const VIEWER = `
     (name === "raised" ? plane : raisedSvg).setAttribute("hidden", "");
     (name === "raised" ? raisedSvg : plane).removeAttribute("hidden");
     pictureButton.textContent = name === "raised" ? "plane" : "raised";
-    if (name === "raised") zoneList.setAttribute("hidden", "");
-    else zoneList.removeAttribute("hidden");
     start();
   }
   setPicture("plane");

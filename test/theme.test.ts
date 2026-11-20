@@ -20,6 +20,8 @@ const TEXT_PAIRS = [
   // The raised picture.
   ["text", "part-side"], ["zone-title", "bg"],
   ...COLOURS.map((c) => ["zone-title", `zone-${c}`]),
+  // A label box of the raised picture can lie on a zone colour.
+  ...COLOURS.map((c) => ["text", `zone-${c}`]),
 ];
 const LINE_PAIRS = [
   ["part-line", "bg"], ["ext-line", "bg"], ["zone-line", "bg"], ["edge", "bg"],
@@ -177,16 +179,27 @@ describe("zone colours", () => {
     expect(seven.rects.find((r) => r[0] === "z7")).toEqual(["z7", "1"]);
   });
 
-  test("the list hides with the raised picture and comes back with the plane picture", () => {
-    const { v } = drawn(zonedPage(["a"]));
-    const tools = v.doc.byId.get("tools")!.children;
-    const picture = tools.find((c) => c.getAttribute("data-role") === "picture")!;
-    expect(v.zones.hasAttribute("hidden")).toBe(false);
+  test("the list stays with the raised picture, with the same items", () => {
+    const file = zonedPage(["b", "a"]);
+    const { v, items } = drawn(file);
+    const picture = v.doc.byId.get("tools")!.children.find((c) => c.getAttribute("data-role") === "picture")!;
+    const listed = () => v.zones.children.map((e) => [e.getAttribute("data-zone"), e.getAttribute("data-colour"), e.textContent]);
     picture.dispatch("click");
-    expect(v.zones.hasAttribute("hidden")).toBe(true);
+    expect(v.picture().shown).toBe("raised");
+    expect([v.zones.hasAttribute("hidden"), listed()]).toEqual([false, items]);
     picture.dispatch("click");
-    expect(v.zones.hasAttribute("hidden")).toBe(false);
-    expect(drawn(zonedPage(["a"]), "#picture=raised").v.zones.hasAttribute("hidden")).toBe(true);
+    expect([v.zones.hasAttribute("hidden"), listed()]).toEqual([false, items]);
+    const opened = drawn(file, "#picture=raised");
+    expect([opened.v.picture().shown, opened.v.zones.hasAttribute("hidden"), opened.items]).toEqual(["raised", false, items]);
+  });
+
+  test("the zones of the raised picture have the colours of the plane picture", () => {
+    for (const zones of [["b", "", "a", "b"], ["z1", "z2", "z3", "z4", "z5", "z6", "z7"]]) {
+      const { v, rects } = drawn(zonedPage(zones));
+      const grounds = v.raised.children.filter((e) => e.name === "polygon" && e.getAttribute("class") === "zone");
+      expect(grounds.length).toBe(rects.length);
+      expect(grounds.map((e) => [e.getAttribute("data-zone"), e.getAttribute("data-colour")]).sort()).toEqual([...rects].sort());
+    }
   });
 
   test("a step of a walk-through leaves the zone colours as they are", () => {
@@ -256,7 +269,6 @@ describe("theme tokens", () => {
       ...COLOURS.map((c) => new RegExp(`\\.zone\\[data-colour="${c}"\\], #zones \\[data-colour="${c}"\\]::before \\{ fill: var\\(--cp-zone-${c}\\); background: var\\(--cp-zone-${c}\\); \\}`)),
       /#zones span::before \{[^}]*border: 1px solid var\(--cp-zone-line\)/,
       /#zones \{[^}]*color: var\(--cp-zone-title\)/,
-      /#raised \.zone \{ fill: none; \}/,
       /\.zone-title \{ fill: var\(--cp-zone-title\)/,
       /\.label \{ fill: var\(--cp-text\)/,
       /\.edge \{[^}]*stroke: var\(--cp-edge\)/,
@@ -274,6 +286,10 @@ describe("theme tokens", () => {
       expect(css).toMatch(rule);
     }
     expect(FRAME.head).toContain('<div id="tools"></div>');
+    // The zones of the raised picture are filled too: the colour rules match
+    // any element of class zone, and no rule takes the fill away there.
+    expect(css).not.toMatch(/#raised \.zone/);
+    for (const c of COLOURS) expect(css).toContain(`.zone[data-colour="${c}"]`);
   });
 });
 
