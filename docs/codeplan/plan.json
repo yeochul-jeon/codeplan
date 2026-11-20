@@ -129,7 +129,7 @@
         {
           "to": "counting",
           "why": "for the sort order of zone names",
-          "evidence": ["src/layout.ts:6#62023e7a", "src/raised.ts:24#62023e7a"]
+          "evidence": ["src/layout.ts:6#62023e7a", "src/raised.ts:23#62023e7a"]
         }
       ]
     },
