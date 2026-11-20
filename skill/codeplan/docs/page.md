@@ -14,7 +14,9 @@ and `check` refuse to touch it.
 - One rectangle for each part, sized by its line count, with a label of
   three lines: the name (or the id when the name is empty), the line count
   and the file count. A planned part has a dashed border, and its third
-  line is the word `planned`. The name is in bold. A name too wide for the
+  line is the word `planned`. The name is in bold. The line count, the
+  file count and `planned` are in the dim text colour, and so is the second
+  line of an external's label. A name too wide for the
   label takes two lines, split after a space, `-`, `_`, `/` or `.` where
   one fits; that part's label has four lines and its rectangle is one line
   higher. A name wider than two lines is cut at the end of the second.
@@ -214,8 +216,8 @@ Every colour on the page is one of these tokens:
 | Token | Used for |
 |---|---|
 | `--cp-bg` | page and picture background |
-| `--cp-text` | labels and the step text |
-| `--cp-text-dim` | the lines below the picture, the filled length of a task's bar, the list of a task's files that are not there |
+| `--cp-text` | the names in labels and the step text |
+| `--cp-text-dim` | the lines of counts in labels, the word `external` in labels, the lines below the picture, the filled length of a task's bar, the list of a task's files that are not there |
 | `--cp-part-fill` | part rectangles, the tops of raised rectangles |
 | `--cp-part-line` | part rectangle borders |
 | `--cp-ext-fill` | external rectangles |
