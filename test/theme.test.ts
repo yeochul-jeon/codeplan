@@ -22,6 +22,9 @@ const TEXT_PAIRS = [
   ...COLOURS.map((c) => ["zone-title", `zone-${c}`]),
   // A label box of the raised picture can lie on a zone colour.
   ...COLOURS.map((c) => ["text", `zone-${c}`]),
+  // The lines of counts and the external line of a label.
+  ["text-dim", "part-fill"], ["text-dim", "ext-fill"], ["text-dim", "part-side"],
+  ...COLOURS.map((c) => ["text-dim", `zone-${c}`]),
 ];
 const LINE_PAIRS = [
   ["part-line", "bg"], ["ext-line", "bg"], ["zone-line", "bg"], ["edge", "bg"],
@@ -128,6 +131,61 @@ describe("the name lines of labels", () => {
         const [name, ...rest] = box.children;
         expect(matches(name!), name!.textContent).toBe(true);
         for (const line of rest) expect(matches(line), line.textContent).toBe(false);
+      }
+    }
+  });
+
+  test("the fill rule that wins gives the lines of counts and the external line the dim text colour, and no name line or zone title", () => {
+    const plan = { ...WALK, parts: [...WALK.parts, { id: "later", name: "Later", planned: true, about: "", paths: ["src/later/**"] }] };
+    const file = pageFile(plan);
+    const html = readFileSync(file, "utf8");
+    const css = html.slice(html.indexOf("<style>") + 7, html.indexOf("</style>"));
+    // Every rule outside @media that sets fill, as [selector, value] in order.
+    const rules = [...css.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, "").matchAll(/([^{}]+)\{([^}]*)\}/g)].flatMap((m) => {
+      const fill = /(?:^|;)\s*fill:\s*([^;]+)/.exec(m[2]!);
+      return fill ? m[1]!.split(",").map((s) => [s.trim(), fill[1]!.trim()] as const) : [];
+    });
+    type El = { name: string; getAttribute(k: string): string | null };
+    // A compound of a type, classes and attributes; it gives the specificity
+    // when it matches, and null when not.
+    const score = (selector: string, el: El): number | null => {
+      if (selector.includes("::")) return null;
+      const parts = selector.split(/\s*>\s*|\s+/);
+      const last = parts[parts.length - 1]!;
+      const m = /^([a-z]*)((?:\.[a-z-]+|\[[a-z-]+(?:="[^"]*")?\])*)$/.exec(last);
+      expect(m, selector).not.toBeNull();
+      if (m![1] && m![1] !== el.name) return null;
+      const classes = (el.getAttribute("class") ?? "").split(" ");
+      for (const s of m![2]!.match(/\.[a-z-]+|\[[^\]]+\]/g) ?? []) {
+        if (s.startsWith(".") ? !classes.includes(s.slice(1)) : (([k, v]) => (v === undefined ? el.getAttribute(k!) === null : el.getAttribute(k!) !== JSON.parse(v)))(s.slice(1, -1).split("="))) return null;
+      }
+      // Only a compound alone can reach a text of a label.
+      expect(parts.length, selector).toBe(1);
+      return (m![2]!.match(/\.|\[/g) ?? []).length * 10 + (m![1] ? 1 : 0);
+    };
+    const fillOf = (el: El) => {
+      let best: [number, string] | null = null;
+      for (const [selector, value] of rules) {
+        const s = score(selector, el);
+        if (s !== null && (best === null || s >= best[0])) best = [s, value];
+      }
+      return best?.[1];
+    };
+    const v = openViewer(file);
+    for (const picture of [v.plane, v.raised]) {
+      const boxes = picture.children.filter((e) => e.name === "svg" && e.children[0]?.name === "text");
+      const texts = boxes.map((b) => b.children.map((t) => [t.textContent, t.getAttribute("class"), fillOf(t)]));
+      expect(texts).toEqual(expect.arrayContaining([
+        [["Ledger", "label name", "var(--cp-text)"], ["external", "label", "var(--cp-text-dim)"]],
+        [["Later", "label name", "var(--cp-text)"], ["0 lines", "label", "var(--cp-text-dim)"], ["planned", "label", "var(--cp-text-dim)"]],
+        [["store", "zone-title name", "var(--cp-zone-title)"]],
+      ]));
+      // Four parts, one external and one zone.
+      expect(texts.length).toBe(6);
+      for (const box of texts) {
+        for (const [, cls, fill] of box) {
+          expect(fill).toBe(cls === "label" ? "var(--cp-text-dim)" : cls === "label name" ? "var(--cp-text)" : "var(--cp-zone-title)");
+        }
       }
     }
   });
@@ -270,7 +328,8 @@ describe("theme tokens", () => {
       /#zones span::before \{[^}]*border: 1px solid var\(--cp-zone-line\)/,
       /#zones \{[^}]*color: var\(--cp-zone-title\)/,
       /\.zone-title \{ fill: var\(--cp-zone-title\)/,
-      /\.label \{ fill: var\(--cp-text\)/,
+      /\.label \{ fill: var\(--cp-text-dim\)/,
+      /\.label\.name \{ fill: var\(--cp-text\); \}/,
       /\.edge \{[^}]*stroke: var\(--cp-edge\)/,
       /\.connector \{[^}]*stroke: var\(--cp-connector\)/,
       /\.arrow \{ fill: var\(--cp-edge\)/,
