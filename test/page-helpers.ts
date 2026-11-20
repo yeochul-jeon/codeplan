@@ -28,6 +28,26 @@ export const labelA = (name: string, id: string, lines: number, files: number, p
     Math.max(width(name === "" ? id : name), width(`${lines} lines`), width(planned ? "planned" : `${files} files`)) + 12,
   );
 export const titleW = (zone: string) => Math.min(240, width(zone) + 12);
+// The two name lines of a name wider than 228, counted again here: after the
+// last space, -, _, / or . in the longest start that fits, unless the first
+// line would then be empty; else after that start. The first line loses its
+// spaces at the end.
+export function wrapOf(name: string): [string, string] | null {
+  if (width(name) <= 228) return null;
+  const chars = [...name];
+  let n = 0;
+  while (width(chars.slice(0, n + 1).join("")) <= 228) n++;
+  let cut = n;
+  for (let i = n - 1; i >= 0; i--) {
+    if (" -_/.".includes(chars[i]!) && chars.slice(0, i + 1).join("").replace(/ +$/, "") !== "") {
+      cut = i + 1;
+      break;
+    }
+  }
+  return [chars.slice(0, cut).join("").replace(/ +$/, ""), chars.slice(cut).join("")];
+}
+// A part's label height: 56, or 72 when its name takes two lines.
+export const labelB = (name: string, id: string) => (wrapOf(name === "" ? id : name) ? 72 : 56);
 
 export interface Block {
   format: number;
@@ -45,7 +65,7 @@ export interface Block {
     width: number;
     height: number;
     zones: { name: string; x: number; y: number; w: number; h: number; title: Box }[];
-    parts: { id: string; x: number; y: number; w: number; h: number; label: Box }[];
+    parts: { id: string; x: number; y: number; w: number; h: number; label: Box & { wrap?: string[] } }[];
     externals: { id: string; x: number; y: number; w: number; h: number; label: Box }[];
     edges: { from: string; to: string; points: [number, number][] }[];
     connectors: { scenario: string; step: number; points: [number, number][] }[];
@@ -55,7 +75,7 @@ export interface Block {
     height: number;
     projection: { x: number[]; y: number[] };
     zones: { name: string; x: number; y: number; w: number; h: number; title: Box }[];
-    parts: { id: string; x: number; y: number; w: number; h: number; z: number; label: Box }[];
+    parts: { id: string; x: number; y: number; w: number; h: number; z: number; label: Box & { wrap?: string[] } }[];
     externals: { id: string; x: number; y: number; w: number; h: number; label: Box }[];
     order: string[];
   };
@@ -274,11 +294,12 @@ export function expectLayout(block: Block): void {
     expect(keysOf(z.title)).toEqual(["x", "y", "w", "h"]);
     numbers.push(z.x, z.y, z.w, z.h, z.title.x, z.title.y, z.title.w, z.title.h);
   }
-  for (const p of layout.parts) {
+  layout.parts.forEach((p, i) => {
     expect(keysOf(p)).toEqual(["id", "x", "y", "w", "h", "label"]);
-    expect(keysOf(p.label)).toEqual(["x", "y", "w", "h"]);
+    const name = plan.parts[i]?.name ?? "";
+    expect(keysOf(p.label)).toEqual(wrapOf(name === "" ? p.id : name) ? ["x", "y", "w", "h", "wrap"] : ["x", "y", "w", "h"]);
     numbers.push(p.x, p.y, p.w, p.h, p.label.x, p.label.y, p.label.w, p.label.h);
-  }
+  });
   for (const n of numbers) expect(Number.isInteger(n) && n >= 0, String(n)).toBe(true);
 
   expect(layout.parts.map((p) => p.id)).toEqual(plan.parts.map((p) => p.id));
@@ -343,13 +364,16 @@ export function expectLayout(block: Block): void {
   layout.parts.forEach((p, i) => {
     const m = measure.parts[i]!;
     const a = labelA(plan.parts[i]!.name, p.id, m.lines, m.files, plan.parts[i]!.planned === true);
-    expect(p.label, p.id).toEqual({ x: p.x, y: p.y, w: a, h: 56 });
+    const name = plan.parts[i]!.name;
+    const wrap = wrapOf(name === "" ? p.id : name);
+    const b = wrap ? 72 : 56;
+    expect(p.label, p.id).toEqual({ x: p.x, y: p.y, w: a, h: b, ...(wrap ? { wrap } : {}) });
     const area = p.w * p.h;
-    expect(p.w >= a && p.h >= 56, p.id).toBe(true);
+    expect(p.w >= a && p.h >= b, p.id).toBe(true);
     expect(area ** 2 >= 160000 * m.lines, p.id).toBe(true);
-    expect(area ** 2 <= 250000 * m.lines || area <= a * 56, p.id).toBe(true);
+    expect(area ** 2 <= 250000 * m.lines || area <= a * b, p.id).toBe(true);
     const ratio = Math.max(p.w, p.h) / Math.min(p.w, p.h);
-    expect(ratio <= Math.max(3, a / 56, 56 / a) + 1e-9, p.id).toBe(true);
+    expect(ratio <= Math.max(3, a / b, b / a) + 1e-9, p.id).toBe(true);
     expect(inside(p, W, H) && inside(p.label, W, H), p.id).toBe(true);
   });
 

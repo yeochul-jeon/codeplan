@@ -1815,10 +1815,11 @@ var VIEWER = `
     parent.appendChild(el);
     return el;
   }
-  function textBox(box, lines, cls, parent) {
+  // The first n lines (one when n is not given) are name lines.
+  function textBox(box, lines, cls, parent, n) {
     var clip = make("svg", { x: box.x, y: box.y, width: box.w, height: box.h, overflow: "hidden" }, parent);
     for (var i = 0; i < lines.length; i++) {
-      var t = make("text", { x: 6, y: 16 * (i + 1), "class": i === 0 ? cls + " name" : cls }, clip);
+      var t = make("text", { x: 6, y: 16 * (i + 1), "class": i < (n || 1) ? cls + " name" : cls }, clip);
       t.textContent = lines[i];
     }
   }
@@ -1856,6 +1857,13 @@ var VIEWER = `
   var measured = Object.create(null);
   for (var j = 0; j < data.measure.parts.length; j++) measured[data.measure.parts[j].id] = data.measure.parts[j];
 
+  // A part's label: its name on one line, or the two lines of wrap, then
+  // the line count and the file count.
+  function partText(part, m, parent) {
+    var name = part.label.wrap || [names[part.id] || part.id];
+    textBox(part.label, name.concat([m.lines + " lines", planned[part.id] ? "planned" : m.files + " files"]), "label", parent, name.length);
+  }
+
   var defs = make("defs", {}, plane);
   // The arrowhead is 6 drawing units whatever the line width or highlight,
   // so it stays in the gap of 8 before the rectangle and inside the canvas.
@@ -1873,7 +1881,7 @@ var VIEWER = `
     var m = measured[part.id] || { lines: 0, files: 0 };
     rects[part.id] = make("rect", { x: part.x, y: part.y, width: part.w, height: part.h, "class": "part", "data-id": part.id }, plane);
     if (planned[part.id]) rects[part.id].setAttribute("data-planned", "true");
-    textBox(part.label, [names[part.id] || part.id, m.lines + " lines", planned[part.id] ? "planned" : m.files + " files"], "label", plane);
+    partText(part, m, plane);
   }
   for (var x = 0; x < layout.externals.length; x++) {
     var ext = layout.externals[x];
@@ -1929,7 +1937,7 @@ var VIEWER = `
   }
   for (var rl = 0; rl < raised.parts.length; rl++) {
     var rm = measured[raised.parts[rl].id] || { lines: 0, files: 0 };
-    textBox(raised.parts[rl].label, [names[raised.parts[rl].id] || raised.parts[rl].id, rm.lines + " lines", planned[raised.parts[rl].id] ? "planned" : rm.files + " files"], "label", raisedSvg);
+    partText(raised.parts[rl], rm, raisedSvg);
   }
   for (var re = 0; re < raised.externals.length; re++) textBox(raised.externals[re].label, [names[raised.externals[re].id] || raised.externals[re].id, "external"], "label", raisedSvg);
   for (var rt = 0; rt < raised.zones.length; rt++) textBox(raised.zones[rt].title, [raised.zones[rt].name], "zone-title", raisedSvg);
@@ -3795,11 +3803,29 @@ function labelLines(p2) {
 function labelWidth(p2) {
   return Math.min(LABEL_CAP, Math.max(...labelLines(p2).map(textWidth)) + 12);
 }
+function nameLines(name) {
+  const fit = LABEL_CAP - 12;
+  if (textWidth(name) <= fit) return [name];
+  const chars = [...name];
+  let n = 0;
+  for (let w = textWidth(chars[0]); w <= fit; w += textWidth(chars[n])) n++;
+  let cut = n;
+  for (let i = n - 1; i >= 0; i--) {
+    if (" -_/.".includes(chars[i]) && chars.slice(0, i + 1).join("").trimEnd() !== "") {
+      cut = i + 1;
+      break;
+    }
+  }
+  return [chars.slice(0, cut).join("").replace(/ +$/, ""), chars.slice(cut).join("")];
+}
+function partLabel(p2) {
+  const name = nameLines(labelLines(p2)[0]);
+  return name.length === 2 ? { a: labelWidth(p2), b: LABEL_HEIGHT + 16, wrap: name } : { a: labelWidth(p2), b: LABEL_HEIGHT };
+}
 function titleWidth(zone) {
   return Math.min(LABEL_CAP, textWidth(zone) + 12);
 }
-function partSize(a, lines) {
-  const b = LABEL_HEIGHT;
+function partSize(a, lines, b = LABEL_HEIGHT) {
   const t2 = 16e4 * lines;
   if ((a * b) ** 2 >= t2) return { w: a, h: b };
   const w = Math.max(a, Math.ceil(Math.sqrt(Math.sqrt(t2))));
@@ -3889,9 +3915,9 @@ function layOut(inputs, externalInputs = [], relations = { edges: [], connectors
   };
   const drawn = lines.map((l) => ({ out: endOf(l.from, l.kind, true), in: endOf(l.to, l.kind, false) }));
   const parts = inputs.map((p2) => {
-    const a = labelWidth(p2);
-    const { w, h } = partSize(a, p2.lines);
-    return { id: p2.id, x: 0, y: 0, w, h, label: { x: 0, y: 0, w: a, h: LABEL_HEIGHT } };
+    const { a, b, wrap } = partLabel(p2);
+    const { w, h } = partSize(a, p2.lines, b);
+    return { id: p2.id, x: 0, y: 0, w, h, label: { x: 0, y: 0, w: a, h: b, ...wrap ? { wrap } : {} } };
   });
   const gapAbove = /* @__PURE__ */ new Map();
   const rectBlock = (rect) => {
@@ -4119,10 +4145,10 @@ function raisedPicture(inputs, externalInputs) {
   const [ax, , az, ox] = PROJECTION.x;
   const [, by, bz, oy] = PROJECTION.y;
   const parts = inputs.map((p2) => {
-    const a = labelWidth(p2);
-    const { w, h } = partSize(a, p2.lines);
+    const { a, b, wrap } = partLabel(p2);
+    const { w, h } = partSize(a, p2.lines, b);
     const z = p2.planned ? H0 : Math.max(H0, Math.round(K * Math.sqrt(p2.lines)));
-    return { id: p2.id, x: 0, y: 0, w, h, z, label: { x: 0, y: 0, w: a, h: LABEL_HEIGHT } };
+    return { id: p2.id, x: 0, y: 0, w, h, z, label: { x: 0, y: 0, w: a, h: b, ...wrap ? { wrap } : {} } };
   });
   const partCell = (part) => ({
     w: part.w + part.z,

@@ -3,7 +3,7 @@
 // viewer draws from it.
 import { expect } from "vitest";
 import { raisedPicture } from "../src/raised.js";
-import { extA, labelA, titleW, type Block } from "./page-helpers.js";
+import { extA, labelA, titleW, wrapOf, type Block } from "./page-helpers.js";
 import type { El, Viewer } from "./viewer-dom.js";
 
 type Point = [number, number];
@@ -75,11 +75,12 @@ export function expectRaised(block: Pick<Block, "plan" | "measure" | "layout" | 
     expect(keysOf(z.title)).toEqual(["x", "y", "w", "h"]);
     numbers.push(z.x, z.y, z.w, z.h, z.title.x, z.title.y, z.title.w, z.title.h);
   }
-  for (const p of raised.parts) {
+  raised.parts.forEach((p, i) => {
     expect(keysOf(p)).toEqual(["id", "x", "y", "w", "h", "z", "label"]);
-    expect(keysOf(p.label)).toEqual(["x", "y", "w", "h"]);
+    const name = plan.parts[i]?.name ?? "";
+    expect(keysOf(p.label)).toEqual(wrapOf(name === "" ? p.id : name) ? ["x", "y", "w", "h", "wrap"] : ["x", "y", "w", "h"]);
     numbers.push(p.x, p.y, p.w, p.h, p.z, p.label.x, p.label.y, p.label.w, p.label.h);
-  }
+  });
   for (const x of raised.externals) {
     expect(keysOf(x)).toEqual(["id", "x", "y", "w", "h", "label"]);
     expect(keysOf(x.label)).toEqual(["x", "y", "w", "h"]);
@@ -156,7 +157,11 @@ export function expectRaised(block: Pick<Block, "plan" | "measure" | "layout" | 
   raised.parts.forEach((p, i) => {
     const m = measure.parts[i]!;
     const a = labelA(plan.parts[i]!.name, p.id, m.lines, m.files, plan.parts[i]!.planned === true);
-    expect([p.label.w, p.label.h], p.id).toEqual([a, 56]);
+    const name = plan.parts[i]!.name;
+    const wrap = wrapOf(name === "" ? p.id : name);
+    expect([p.label.w, p.label.h, p.label.wrap], p.id).toEqual([a, wrap ? 72 : 56, wrap ?? undefined]);
+    // The same name lines as in the plane picture.
+    expect(p.label.wrap, p.id).toEqual(layout.parts[i]!.label.wrap);
   });
   raised.externals.forEach((x, i) => {
     expect([x.label.w, x.label.h], x.id).toEqual([extA(planExternals[i]!.name, x.id), 40]);
@@ -268,8 +273,8 @@ export function expectRaisedPage(page: string, v: Viewer): void {
   const names = new Map([...plan.parts, ...(plan.externals ?? [])].map((p) => [p.id, p.name === "" ? p.id : p.name]));
   const wanted = [
     ...raised.parts.map((p, i) => ({
-      box: p.label,
-      lines: [names.get(p.id), `${measure.parts[i]!.lines} lines`, plan.parts[i]!.planned === true ? "planned" : `${measure.parts[i]!.files} files`],
+      box: { x: p.label.x, y: p.label.y, w: p.label.w, h: p.label.h },
+      lines: [...(p.label.wrap ?? [names.get(p.id)]), `${measure.parts[i]!.lines} lines`, plan.parts[i]!.planned === true ? "planned" : `${measure.parts[i]!.files} files`],
     })),
     ...raised.externals.map((x) => ({ box: x.label, lines: [names.get(x.id), "external"] })),
     ...raised.zones.map((z) => ({ box: z.title, lines: [z.name] })),

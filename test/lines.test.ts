@@ -31,12 +31,20 @@ describe("a plan without lines has the layout it had before lines got places of 
     "a part that uses only itself": "f3766cd28324cd2ad8a9d2bb15d569480c97beb717cb45e368ba075de14a3325",
     "a scenario whose steps stay in one place": "f41d56b5003fdc3f726d7ef4f6df6895c40233bc2afa55e90565b2f6c1c30baa",
   };
+  // The SHA-256 of the raised picture, as JSON, in the page that the
+  // codeplan.mjs before two-line names wrote. No name here takes two lines.
+  const RAISED_BEFORE: Record<string, string> = {
+    "parts, zones and an external": "b254fb46a9eef77411d6fccd85c4b73845ab1ad7f07b1cdf82ffaa798c8f26e8",
+    "a part that uses only itself": "0809f4a05717147ca72fb17a511fd528322badea82b461cd052d8e85ecf5b377",
+    "a scenario whose steps stay in one place": "db4a10a9adb2f14443aab98ef156ca0e991b08b37fd6cea38866cbdef3d3fba2",
+  };
   test.each(Object.keys(NO_LINES))("%s", (name) => {
     const repo = makeRepo(treeOf(NO_LINES[name]!));
     expect(run(["update"], repo).code).toBe(0);
     const block = expectPage(repo, PAGE);
     expect([block.layout.edges, block.layout.connectors]).toEqual([[], []]);
     expect(sha(JSON.stringify(block.layout))).toBe(BEFORE[name]);
+    expect(sha(JSON.stringify(block.raised))).toBe(RAISED_BEFORE[name]);
   });
 
   test("a plan as draft prints it", () => {
@@ -51,6 +59,7 @@ describe("a plan without lines has the layout it had before lines got places of 
     expect(run(["update"], repo).code).toBe(0);
     const block = expectPage(repo, PAGE);
     expect(sha(JSON.stringify(block.layout))).toBe("26a1b63841159fd3e37d9c2d8e165cc35434064032fbe35f3d653a37650bf27d");
+    expect(sha(JSON.stringify(block.raised))).toBe("d711657ed48509b504d853958fdd8186b801ab8e2a49fc05b9041312503641c3");
   });
 });
 

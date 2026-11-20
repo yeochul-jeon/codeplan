@@ -194,10 +194,11 @@ const VIEWER = `
     parent.appendChild(el);
     return el;
   }
-  function textBox(box, lines, cls, parent) {
+  // The first n lines (one when n is not given) are name lines.
+  function textBox(box, lines, cls, parent, n) {
     var clip = make("svg", { x: box.x, y: box.y, width: box.w, height: box.h, overflow: "hidden" }, parent);
     for (var i = 0; i < lines.length; i++) {
-      var t = make("text", { x: 6, y: 16 * (i + 1), "class": i === 0 ? cls + " name" : cls }, clip);
+      var t = make("text", { x: 6, y: 16 * (i + 1), "class": i < (n || 1) ? cls + " name" : cls }, clip);
       t.textContent = lines[i];
     }
   }
@@ -235,6 +236,13 @@ const VIEWER = `
   var measured = Object.create(null);
   for (var j = 0; j < data.measure.parts.length; j++) measured[data.measure.parts[j].id] = data.measure.parts[j];
 
+  // A part's label: its name on one line, or the two lines of wrap, then
+  // the line count and the file count.
+  function partText(part, m, parent) {
+    var name = part.label.wrap || [names[part.id] || part.id];
+    textBox(part.label, name.concat([m.lines + " lines", planned[part.id] ? "planned" : m.files + " files"]), "label", parent, name.length);
+  }
+
   var defs = make("defs", {}, plane);
   // The arrowhead is 6 drawing units whatever the line width or highlight,
   // so it stays in the gap of 8 before the rectangle and inside the canvas.
@@ -252,7 +260,7 @@ const VIEWER = `
     var m = measured[part.id] || { lines: 0, files: 0 };
     rects[part.id] = make("rect", { x: part.x, y: part.y, width: part.w, height: part.h, "class": "part", "data-id": part.id }, plane);
     if (planned[part.id]) rects[part.id].setAttribute("data-planned", "true");
-    textBox(part.label, [names[part.id] || part.id, m.lines + " lines", planned[part.id] ? "planned" : m.files + " files"], "label", plane);
+    partText(part, m, plane);
   }
   for (var x = 0; x < layout.externals.length; x++) {
     var ext = layout.externals[x];
@@ -308,7 +316,7 @@ const VIEWER = `
   }
   for (var rl = 0; rl < raised.parts.length; rl++) {
     var rm = measured[raised.parts[rl].id] || { lines: 0, files: 0 };
-    textBox(raised.parts[rl].label, [names[raised.parts[rl].id] || raised.parts[rl].id, rm.lines + " lines", planned[raised.parts[rl].id] ? "planned" : rm.files + " files"], "label", raisedSvg);
+    partText(raised.parts[rl], rm, raisedSvg);
   }
   for (var re = 0; re < raised.externals.length; re++) textBox(raised.externals[re].label, [names[raised.externals[re].id] || raised.externals[re].id, "external"], "label", raisedSvg);
   for (var rt = 0; rt < raised.zones.length; rt++) textBox(raised.zones[rt].title, [raised.zones[rt].name], "zone-title", raisedSvg);

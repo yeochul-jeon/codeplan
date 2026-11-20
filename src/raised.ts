@@ -10,10 +10,9 @@
 import {
   EXTERNAL_HEIGHT,
   GAP,
-  LABEL_HEIGHT,
   TITLE_HEIGHT,
   externalWidth,
-  labelWidth,
+  partLabel,
   partSize,
   titleWidth,
   type ExternalInput,
@@ -91,10 +90,10 @@ export function raisedPicture(inputs: PartInput[], externalInputs: ExternalInput
   const [, by, bz, oy] = PROJECTION.y as [number, number, number, number];
 
   const parts: RaisedPart[] = inputs.map((p) => {
-    const a = labelWidth(p);
-    const { w, h } = partSize(a, p.lines);
+    const { a, b, wrap } = partLabel(p);
+    const { w, h } = partSize(a, p.lines, b);
     const z = p.planned ? H0 : Math.max(H0, Math.round(K * Math.sqrt(p.lines)));
-    return { id: p.id, x: 0, y: 0, w, h, z, label: { x: 0, y: 0, w: a, h: LABEL_HEIGHT } };
+    return { id: p.id, x: 0, y: 0, w, h, z, label: { x: 0, y: 0, w: a, h: b, ...(wrap ? { wrap } : {}) } };
   });
   // The cell of a part is its top and its two sides: w + z by h + z. The
   // rectangle it stands on is at the cell's left and z below the cell's

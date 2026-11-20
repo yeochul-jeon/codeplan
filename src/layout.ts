@@ -19,7 +19,8 @@ export interface LayoutZone extends Box {
 
 export interface LayoutPart extends Box {
   id: string;
-  label: Box;
+  // wrap: the two name lines of a name split in two.
+  label: Box & { wrap?: string[] };
 }
 
 export interface Layout {
@@ -63,6 +64,32 @@ export function labelWidth(p: PartInput): number {
   return Math.min(LABEL_CAP, Math.max(...labelLines(p).map(textWidth)) + 12);
 }
 
+// A name wider than the label box takes two lines: after the last space,
+// -, _, / or . in the longest start that fits (not where the first line
+// would be empty), or after that start when there is none. The first line
+// loses its spaces at the end; the second keeps the rest as it is.
+export function nameLines(name: string): string[] {
+  const fit = LABEL_CAP - 12;
+  if (textWidth(name) <= fit) return [name];
+  const chars = [...name];
+  let n = 0;
+  for (let w = textWidth(chars[0]!); w <= fit; w += textWidth(chars[n]!)) n++;
+  let cut = n;
+  for (let i = n - 1; i >= 0; i--) {
+    if (" -_/.".includes(chars[i]!) && chars.slice(0, i + 1).join("").trimEnd() !== "") {
+      cut = i + 1;
+      break;
+    }
+  }
+  return [chars.slice(0, cut).join("").replace(/ +$/, ""), chars.slice(cut).join("")];
+}
+
+// The label box of a part, and the two name lines when the name is split.
+export function partLabel(p: PartInput): { a: number; b: number; wrap?: string[] } {
+  const name = nameLines(labelLines(p)[0]!);
+  return name.length === 2 ? { a: labelWidth(p), b: LABEL_HEIGHT + 16, wrap: name } : { a: labelWidth(p), b: LABEL_HEIGHT };
+}
+
 export function titleWidth(zone: string): number {
   return Math.min(LABEL_CAP, textWidth(zone) + 12);
 }
@@ -71,8 +98,7 @@ export function titleWidth(zone: string): number {
 // fits in it, otherwise a rectangle close to a square with area in
 // [T, 1.25·T]. Area bounds are decided on squares, in integers:
 // (w·h)² ≥ 160000·lines and (w·h)² ≤ 250000·lines.
-export function partSize(a: number, lines: number): { w: number; h: number } {
-  const b = LABEL_HEIGHT;
+export function partSize(a: number, lines: number, b = LABEL_HEIGHT): { w: number; h: number } {
   const t2 = 160000 * lines;
   if ((a * b) ** 2 >= t2) return { w: a, h: b };
   const w = Math.max(a, Math.ceil(Math.sqrt(Math.sqrt(t2))));
@@ -232,9 +258,9 @@ export function layOut(
   const drawn = lines.map((l) => ({ out: endOf(l.from, l.kind, true), in: endOf(l.to, l.kind, false) }));
 
   const parts: LayoutPart[] = inputs.map((p) => {
-    const a = labelWidth(p);
-    const { w, h } = partSize(a, p.lines);
-    return { id: p.id, x: 0, y: 0, w, h, label: { x: 0, y: 0, w: a, h: LABEL_HEIGHT } };
+    const { a, b, wrap } = partLabel(p);
+    const { w, h } = partSize(a, p.lines, b);
+    return { id: p.id, x: 0, y: 0, w, h, label: { x: 0, y: 0, w: a, h: b, ...(wrap ? { wrap } : {}) } };
   });
   // A rectangle's ends sit on its bottom side, evenly apart.
   const gapAbove = new Map<string, object | null>();

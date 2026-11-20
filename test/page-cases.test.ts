@@ -120,7 +120,7 @@ function expectBlock(block: Block, e: Expect): void {
   expect(block.unwatched).toBe(x.unwatched);
   expect(block.layout.zones.map((z) => z.name)).toEqual(x.zones);
   expect(Object.fromEntries(block.layout.parts.map((p) => [p.id, p.label.w]))).toEqual(x.a);
-  for (const p of block.layout.parts) expect(p.label.h).toBe(56);
+  for (const p of block.layout.parts) expect(p.label.h, p.id).toBe(p.label.wrap ? 72 : 56);
   for (const [id, size] of Object.entries(x.fixed)) {
     const p = block.layout.parts.find((q) => q.id === id)!;
     expect([p.w, p.h], id).toEqual(size);
@@ -568,9 +568,11 @@ const CASES: Case[] = [
           parts: { orders: [1, 8], refund: [1, 12], misc: [1, 3], big: [1, 1234], jamo: [1, 2], emoji: [1, 2] },
           zones: [],
           a: { orders: 240, refund: 84, misc: 61, big: 82, jamo: 112, emoji: 77 },
-          fixed: { orders: [240, 56], refund: [84, 56], misc: [61, 56], jamo: [112, 56], emoji: [77, 56] },
+          fixed: { orders: [240, 72], refund: [84, 56], misc: [61, 56], jamo: [112, 56], emoji: [77, 56] },
           titles: {},
           more: (b) => {
+            // The one name wider than 228 takes two lines.
+            expect(b.layout.parts.map((p) => p.label.wrap ?? null)).toEqual([["Order history and refund", "processing service"], null, null, null, null, null]);
             const big = b.layout.parts.find((p) => p.id === "big")!;
             const area = big.w * big.h;
             expect(area ** 2 >= 197440000 && area ** 2 <= 308500000).toBe(true);
@@ -724,7 +726,7 @@ const CASES: Case[] = [
           parts: { all: [4, 15] },
           zones: [],
           a: { all: 240 },
-          fixed: { all: [240, 56] },
+          fixed: { all: [240, 72] },
           titles: {},
           more: (b) => expect(b.layout.height).toBeGreaterThanOrEqual(86),
         },
