@@ -14,7 +14,10 @@ and `check` refuse to touch it.
 - One rectangle for each part, sized by its line count, with a label of
   three lines: the name (or the id when the name is empty), the line count
   and the file count. A planned part has a dashed border, and its third
-  line is the word `planned`.
+  line is the word `planned`. The name is in bold. A name too wide for the
+  label takes two lines, split after a space, `-`, `_`, `/` or `.` where
+  one fits; that part's label has four lines and its rectangle is one line
+  higher. A name wider than two lines is cut at the end of the second.
 - A frame for each `zone`, with its name, around the zone's parts. Each
   frame has a pale colour of its own: the zones take six colours in the
   order they first come in the plan's parts, and the seventh zone takes the
@@ -137,11 +140,13 @@ In the raised picture each part is a raised rectangle:
 - Its height comes from the part's line count: the more lines, the higher.
   A planned part and a part with no lines have the lowest height.
 - You see its top and two of its sides. The label is on the top and has the
-  same three lines as in the plane picture. A planned part has dashed lines.
+  same lines as in the plane picture, a long name on two lines too. A
+  planned part has dashed lines.
 
 An external is a flat rectangle with its label. A zone is a line around the
-rectangles its parts stand on, with the zone's name inside the line. No
-raised rectangle covers another one or a label.
+rectangles its parts stand on, filled with the zone's colour from the plane
+picture, with the zone's name inside the line. No raised rectangle covers
+another one or a label.
 
 The raised picture has no lines for uses, no connectors and no highlight.
 Where its shapes are comes from the parts, their counts and the externals
@@ -152,8 +157,8 @@ Showing the raised picture ends an open walk-through and a chosen task.
 Choosing a scenario or a task while the raised picture shows goes to the
 plane picture and opens it there. No shape in the raised picture reacts to
 the pointer or a key, and Esc does nothing while it shows. Zooming and
-moving work as in the plane picture. The zones of the raised picture have
-no colour, and the list of zones hides while it shows.
+moving work as in the plane picture. The list of zones stays under the
+picture.
 
 The address carries the picture: `#picture=raised` opens the page with the
 raised picture. A fragment with a `scenario` or `task` key opens the plane

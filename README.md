@@ -173,6 +173,9 @@ cp -R /path/to/codeplan/skill/codeplan ~/.claude/skills/codeplan
 - The `codeplan.mjs` that added zooming and zone colours writes every page
   differently, so `check` reports each page as outdated until you run
   `update`.
+- The `codeplan.mjs` that added bold names, two-line names and zone colours
+  in the raised picture writes every page differently, so `check` reports
+  each page as outdated until you run `update`.
 
 ## Developing codeplan
 
