@@ -107,6 +107,30 @@ function zonedPage(zones: string[], extra: Record<string, unknown> = {}): string
   return join(repo, "docs/codeplan/codeplan.html");
 }
 
+describe("the name lines of labels", () => {
+  test("a rule of weight 600 matches each name line by its own classes and no line of counts", () => {
+    const html = readFileSync(pageFile(WALK), "utf8");
+    const css = html.slice(html.indexOf("<style>") + 7, html.indexOf("</style>"));
+    // The selectors of the rules that set weight 600; each is one compound
+    // of classes, with no combinator.
+    const bold = [...css.matchAll(/([^{}]+)\{[^}]*font-weight: 600;[^}]*\}/g)].flatMap((m) => m[1]!.split(",").map((t) => t.trim()));
+    expect(bold).toContain(".name");
+    for (const selector of bold) expect(selector, selector).toMatch(/^(\.[a-z-]+)+$/);
+    const matches = (el: { getAttribute(k: string): string | null }) =>
+      bold.some((selector) => selector.slice(1).split(".").every((c) => (el.getAttribute("class") ?? "").split(" ").includes(c)));
+    const v = openViewer(pageFile(WALK));
+    for (const picture of [v.plane, v.raised]) {
+      const labels = picture.children.filter((e) => e.name === "svg" && e.children[0]?.getAttribute("class")?.startsWith("label"));
+      expect(labels.length).toBe(4);
+      for (const box of labels) {
+        const [name, ...rest] = box.children;
+        expect(matches(name!), name!.textContent).toBe(true);
+        for (const line of rest) expect(matches(line), line.textContent).toBe(false);
+      }
+    }
+  });
+});
+
 describe("zone colours", () => {
   test("six opaque colours in each theme, apart in hue and away from grey, and not the background", () => {
     for (const [name, zones] of Object.entries(ZONES)) {

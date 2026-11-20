@@ -1750,7 +1750,7 @@ main { padding: 16px; }
 .part[data-planned] { stroke-dasharray: 6 3; }
 .external { fill: var(--cp-ext-fill); stroke: var(--cp-ext-line); stroke-width: 1; stroke-dasharray: 4 2; }
 .label { fill: var(--cp-text); font-size: 12px; }
-.label .name { font-weight: 600; }
+.name { font-weight: 600; }
 #raised .zone { fill: none; }
 .side { fill: var(--cp-part-side); stroke: var(--cp-part-line); stroke-width: 1; stroke-linejoin: round; }
 .top { fill: var(--cp-part-fill); stroke: var(--cp-part-line); stroke-width: 1; stroke-linejoin: round; }
